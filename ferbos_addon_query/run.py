@@ -39,7 +39,13 @@ class HomeAssistantDB:
     def create_test_db(self):
         """Create a minimal test database structure"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            # Try to create database in a writable location first
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            temp_db_path = os.path.join(temp_dir, "home_assistant_test.db")
+            
+            logger.info(f"Creating test database at: {temp_db_path}")
+            conn = sqlite3.connect(temp_db_path)
             cursor = conn.cursor()
             
             # Create basic tables that might exist in HA
@@ -69,11 +75,27 @@ class HomeAssistantDB:
                 )
             ''')
             
+            # Insert some sample data
+            cursor.execute('''
+                INSERT OR IGNORE INTO states (entity_id, state, last_updated) VALUES
+                ('sensor.temperature', '22.5', datetime('now')),
+                ('light.living_room', 'on', datetime('now')),
+                ('sensor.humidity', '45', datetime('now')),
+                ('switch.garage', 'off', datetime('now')),
+                ('sensor.motion', 'clear', datetime('now'))
+            ''')
+            
             conn.commit()
             conn.close()
-            logger.info("Created test database structure")
+            
+            # Update the database path to use the test database
+            self.db_path = temp_db_path
+            logger.info(f"Created test database with sample data at: {temp_db_path}")
         except Exception as e:
             logger.error(f"Error creating test database: {e}")
+            # Fallback: try to use a simple in-memory database
+            self.db_path = ":memory:"
+            logger.info("Using in-memory database as fallback")
     
     def execute_query(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
         """Execute a SQL query and return results as list of dictionaries"""
@@ -109,6 +131,10 @@ class HomeAssistantDB:
 
 # Initialize database connection
 db_path = os.getenv('DATABASE_PATH', '/config/home_assistant_v2.db')
+logger.info(f"Initializing database connection with path: {db_path}")
+logger.info(f"Current working directory: {os.getcwd()}")
+logger.info(f"Environment variables: DATABASE_PATH={os.getenv('DATABASE_PATH')}")
+
 ha_db = HomeAssistantDB(db_path)
 
 @app.route('/health', methods=['GET'])
