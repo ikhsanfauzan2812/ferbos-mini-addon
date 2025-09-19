@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "slug": "ferbos_addon_query",
   "description": "A mini addon to query Home Assistant database via HTTP API",
-  "url": "https://github.com/ikhsanfauzan2912/ferbos-mini-addon",
+  "url": "https://github.com/ikhsanfauzan2812/ferbos-mini-addon",
   "panel_icon": "mdi:database-search",
   "arch": ["amd64", "armv7", "aarch64"],
   "startup": "application",
