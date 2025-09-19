@@ -10,7 +10,7 @@ import sqlite3
 import logging
 from datetime import datetime
 from typing import Dict, List, Any, Optional
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 
 # Configure logging
 logging.basicConfig(
@@ -183,7 +183,12 @@ except Exception as e:
 
 @app.route('/', methods=['GET'])
 def root():
-    """Root endpoint"""
+    """Root endpoint - serve web interface"""
+    return render_template('index.html')
+
+@app.route('/api', methods=['GET'])
+def api_info():
+    """API info endpoint"""
     return jsonify({
         'message': 'Ferbos Mini Addon is running!',
         'timestamp': datetime.now().isoformat(),

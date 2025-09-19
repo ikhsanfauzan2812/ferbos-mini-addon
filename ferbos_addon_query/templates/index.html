@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ferbos Mini Addon - Database Query Interface</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: #1976d2;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .query-section {
+            padding: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        .query-input {
+            width: 100%;
+            height: 100px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            resize: vertical;
+        }
+        .query-buttons {
+            margin-top: 10px;
+        }
+        .btn {
+            background: #1976d2;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            font-size: 14px;
+        }
+        .btn:hover {
+            background: #1565c0;
+        }
+        .btn-secondary {
+            background: #757575;
+        }
+        .btn-secondary:hover {
+            background: #616161;
+        }
+        .results-section {
+            padding: 20px;
+        }
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .results-count {
+            color: #666;
+            font-size: 14px;
+        }
+        .table-container {
+            overflow-x: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+            position: sticky;
+            top: 0;
+        }
+        tr:hover {
+            background: #f8f9fa;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .quick-queries {
+            margin-top: 15px;
+        }
+        .quick-query {
+            display: inline-block;
+            background: #e3f2fd;
+            color: #1976d2;
+            padding: 5px 10px;
+            margin: 5px 5px 5px 0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .quick-query:hover {
+            background: #bbdefb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 Ferbos Mini Addon</h1>
+            <p>Home Assistant Database Query Interface</p>
+        </div>
+        
+        <div class="query-section">
+            <h3>SQL Query</h3>
+            <textarea id="queryInput" class="query-input" placeholder="Enter your SQL query here...">SELECT name FROM sqlite_master WHERE type='table'</textarea>
+            
+            <div class="query-buttons">
+                <button class="btn" onclick="executeQuery()">Execute Query</button>
+                <button class="btn btn-secondary" onclick="clearQuery()">Clear</button>
+            </div>
+            
+            <div class="quick-queries">
+                <strong>Quick Queries:</strong><br>
+                <span class="quick-query" onclick="setQuery('SELECT name FROM sqlite_master WHERE type=\'table\'')">Show Tables</span>
+                <span class="quick-query" onclick="setQuery('SELECT DISTINCT entity_id FROM states ORDER BY entity_id LIMIT 20')">Show Entities</span>
+                <span class="quick-query" onclick="setQuery('SELECT entity_id, state, last_updated FROM states ORDER BY last_updated DESC LIMIT 10')">Recent States</span>
+                <span class="quick-query" onclick="setQuery('SELECT * FROM statistics_meta LIMIT 10')">Statistics Meta</span>
+                <span class="quick-query" onclick="setQuery('SELECT * FROM events ORDER BY time_fired DESC LIMIT 10')">Recent Events</span>
+            </div>
+        </div>
+        
+        <div class="results-section">
+            <div class="results-header">
+                <h3>Results</h3>
+                <div id="resultsCount" class="results-count"></div>
+            </div>
+            <div id="resultsContainer">
+                <div class="loading">Enter a query and click Execute to see results</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function setQuery(query) {
+            document.getElementById('queryInput').value = query;
+        }
+        
+        function clearQuery() {
+            document.getElementById('queryInput').value = '';
+        }
+        
+        async function executeQuery() {
+            const query = document.getElementById('queryInput').value.trim();
+            if (!query) {
+                alert('Please enter a query');
+                return;
+            }
+            
+            const resultsContainer = document.getElementById('resultsContainer');
+            const resultsCount = document.getElementById('resultsCount');
+            
+            // Show loading
+            resultsContainer.innerHTML = '<div class="loading">Executing query...</div>';
+            resultsCount.textContent = '';
+            
+            try {
+                const response = await fetch('/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        params: []
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayResults(data);
+                } else {
+                    displayError(data.error || 'Query failed');
+                }
+            } catch (error) {
+                displayError('Network error: ' + error.message);
+            }
+        }
+        
+        function displayResults(data) {
+            const resultsContainer = document.getElementById('resultsContainer');
+            const resultsCount = document.getElementById('resultsCount');
+            
+            resultsCount.textContent = `${data.count} rows returned`;
+            
+            if (data.count === 0) {
+                resultsContainer.innerHTML = '<div class="loading">No results found</div>';
+                return;
+            }
+            
+            const results = data.results;
+            const columns = Object.keys(results[0]);
+            
+            let html = '<div class="table-container"><table><thead><tr>';
+            columns.forEach(col => {
+                html += `<th>${col}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+            
+            results.forEach(row => {
+                html += '<tr>';
+                columns.forEach(col => {
+                    const value = row[col];
+                    html += `<td>${value === null ? '<em>null</em>' : escapeHtml(String(value))}</td>`;
+                });
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table></div>';
+            resultsContainer.innerHTML = html;
+        }
+        
+        function displayError(error) {
+            const resultsContainer = document.getElementById('resultsContainer');
+            const resultsCount = document.getElementById('resultsCount');
+            
+            resultsCount.textContent = '';
+            resultsContainer.innerHTML = `<div class="error">Error: ${escapeHtml(error)}</div>`;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Allow Enter key to execute query (Ctrl+Enter)
+        document.getElementById('queryInput').addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'Enter') {
+                executeQuery();
+            }
+        });
+    </script>
+</body>
+</html>
