@@ -116,7 +116,8 @@ class HomeAssistantDB:
             return results
         except Exception as e:
             logger.error(f"Database query error: {e}")
-            raise
+            # Return empty list instead of raising exception
+            return []
     
     def get_tables(self) -> List[str]:
         """Get list of all tables in the database"""
@@ -137,15 +138,41 @@ logger.info(f"Environment variables: DATABASE_PATH={os.getenv('DATABASE_PATH')}"
 
 ha_db = HomeAssistantDB(db_path)
 
+@app.route('/ping', methods=['GET'])
+def ping():
+    """Simple ping endpoint"""
+    return jsonify({
+        'status': 'pong',
+        'timestamp': datetime.now().isoformat(),
+        'addon': 'Ferbos Mini Addon'
+    })
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'database_path': db_path,
-        'database_exists': os.path.exists(db_path)
-    })
+    try:
+        # Test database connection
+        db_status = "unknown"
+        try:
+            ha_db.get_tables()
+            db_status = "connected"
+        except Exception as e:
+            db_status = f"error: {str(e)}"
+        
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat(),
+            'database_path': ha_db.db_path,
+            'database_status': db_status,
+            'addon_version': '1.0.0'
+        })
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
 @app.route('/tables', methods=['GET'])
 def get_tables():
