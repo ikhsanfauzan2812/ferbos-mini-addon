@@ -11,7 +11,7 @@
   "map": ["config:rw"],
   "options": {
     "port": 8080,
-    "database_path": "/config/home_assistant_v2.db"
+    "database_path": "/config/home-assistant_v2.db"
   },
   "schema": {
     "port": "int",

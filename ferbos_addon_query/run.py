@@ -130,8 +130,30 @@ class HomeAssistantDB:
         query = f"PRAGMA table_info({table_name})"
         return self.execute_query(query)
 
-# Initialize database connection
-db_path = os.getenv('DATABASE_PATH', '/config/home_assistant_v2.db')
+# Initialize database connection with multiple possible paths
+def find_home_assistant_db():
+    """Find the Home Assistant database file"""
+    possible_paths = [
+        '/config/home-assistant_v2.db',  # Standard HA database name
+        '/config/home_assistant_v2.db',  # Alternative naming
+        '/config/home-assistant.db',     # Older versions
+        '/config/home_assistant_v2.db',  # Another variant
+    ]
+    
+    # Check environment variable first
+    env_path = os.getenv('DATABASE_PATH')
+    if env_path:
+        possible_paths.insert(0, env_path)
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            logger.info(f"Found Home Assistant database at: {path}")
+            return path
+    
+    logger.warning("No Home Assistant database found, will create test database")
+    return None
+
+db_path = find_home_assistant_db() or '/config/home-assistant_v2.db'
 logger.info(f"Initializing database connection with path: {db_path}")
 logger.info(f"Current working directory: {os.getcwd()}")
 logger.info(f"Environment variables: DATABASE_PATH={os.getenv('DATABASE_PATH')}")
@@ -145,6 +167,27 @@ def ping():
         'status': 'pong',
         'timestamp': datetime.now().isoformat(),
         'addon': 'Ferbos Mini Addon'
+    })
+
+@app.route('/debug', methods=['GET'])
+def debug_info():
+    """Debug information endpoint"""
+    import glob
+    
+    # List all .db files in /config
+    db_files = glob.glob('/config/*.db')
+    
+    return jsonify({
+        'current_database_path': ha_db.db_path,
+        'database_exists': os.path.exists(ha_db.db_path),
+        'config_directory_contents': os.listdir('/config') if os.path.exists('/config') else [],
+        'db_files_in_config': db_files,
+        'working_directory': os.getcwd(),
+        'environment_variables': {
+            'DATABASE_PATH': os.getenv('DATABASE_PATH'),
+            'HOME': os.getenv('HOME'),
+            'USER': os.getenv('USER')
+        }
     })
 
 @app.route('/health', methods=['GET'])
