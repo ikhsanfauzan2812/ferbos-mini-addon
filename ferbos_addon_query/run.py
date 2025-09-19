@@ -11,7 +11,6 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from flask import Flask, request, jsonify
-import uvicorn
 
 # Configure logging
 logging.basicConfig(
@@ -392,11 +391,9 @@ if __name__ == '__main__':
     logger.info(f"Starting Home Assistant Database Query Addon on port {port}")
     logger.info(f"Database path: {db_path}")
     
-    # Run with uvicorn for better performance
-    uvicorn.run(
-        "run:app",
+    # Run with Flask's built-in server for development
+    app.run(
         host="0.0.0.0",
         port=port,
-        log_level="info",
-        access_log=True
+        debug=False
     )
