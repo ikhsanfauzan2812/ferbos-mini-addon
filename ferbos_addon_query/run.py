@@ -193,6 +193,8 @@ def api_info():
         'message': 'Ferbos Mini Addon is running!',
         'timestamp': datetime.now().isoformat(),
         'version': '1.0.0',
+        'database_connected': ha_db.db_path != "dummy",
+        'database_path': ha_db.db_path,
         'endpoints': [
             '/ping',
             '/health', 
@@ -205,13 +207,33 @@ def api_info():
         ]
     })
 
+@app.route('/status', methods=['GET'])
+def status():
+    """Standalone status page"""
+    return jsonify({
+        'addon': 'Ferbos Mini Addon',
+        'version': '1.0.0',
+        'status': 'running',
+        'timestamp': datetime.now().isoformat(),
+        'database_connected': ha_db.db_path != "dummy",
+        'database_path': ha_db.db_path,
+        'access_methods': {
+            'web_interface': '/',
+            'api_info': '/api',
+            'health_check': '/ping',
+            'database_query': '/query'
+        }
+    })
+
 @app.route('/ping', methods=['GET'])
 def ping():
     """Simple ping endpoint"""
     return jsonify({
         'status': 'pong',
         'timestamp': datetime.now().isoformat(),
-        'addon': 'Ferbos Mini Addon'
+        'addon': 'Ferbos Mini Addon',
+        'version': '1.0.0',
+        'database_connected': ha_db.db_path != "dummy"
     })
 
 @app.route('/debug', methods=['GET'])

@@ -9,6 +9,7 @@
   "startup": "application",
   "boot": "auto",
   "map": ["config:rw"],
+  "ingress": false,
   "options": {
     "port": 8080,
     "database_path": "/config/home-assistant_v2.db"
