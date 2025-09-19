@@ -158,7 +158,41 @@ logger.info(f"Initializing database connection with path: {db_path}")
 logger.info(f"Current working directory: {os.getcwd()}")
 logger.info(f"Environment variables: DATABASE_PATH={os.getenv('DATABASE_PATH')}")
 
-ha_db = HomeAssistantDB(db_path)
+try:
+    ha_db = HomeAssistantDB(db_path)
+    logger.info("Database connection initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize database connection: {e}")
+    # Create a dummy database object to prevent crashes
+    class DummyDB:
+        def __init__(self):
+            self.db_path = "dummy"
+        def get_tables(self):
+            return []
+        def execute_query(self, query, params=()):
+            return []
+        def get_table_schema(self, table_name):
+            return []
+    ha_db = DummyDB()
+
+@app.route('/', methods=['GET'])
+def root():
+    """Root endpoint"""
+    return jsonify({
+        'message': 'Ferbos Mini Addon is running!',
+        'timestamp': datetime.now().isoformat(),
+        'version': '1.0.0',
+        'endpoints': [
+            '/ping',
+            '/health', 
+            '/debug',
+            '/tables',
+            '/entities',
+            '/states',
+            '/events',
+            '/query'
+        ]
+    })
 
 @app.route('/ping', methods=['GET'])
 def ping():
@@ -172,23 +206,42 @@ def ping():
 @app.route('/debug', methods=['GET'])
 def debug_info():
     """Debug information endpoint"""
-    import glob
-    
-    # List all .db files in /config
-    db_files = glob.glob('/config/*.db')
-    
-    return jsonify({
-        'current_database_path': ha_db.db_path,
-        'database_exists': os.path.exists(ha_db.db_path),
-        'config_directory_contents': os.listdir('/config') if os.path.exists('/config') else [],
-        'db_files_in_config': db_files,
-        'working_directory': os.getcwd(),
-        'environment_variables': {
-            'DATABASE_PATH': os.getenv('DATABASE_PATH'),
-            'HOME': os.getenv('HOME'),
-            'USER': os.getenv('USER')
-        }
-    })
+    try:
+        import glob
+        
+        # List all .db files in /config
+        db_files = []
+        try:
+            db_files = glob.glob('/config/*.db')
+        except Exception as e:
+            logger.error(f"Error listing db files: {e}")
+        
+        # Get config directory contents safely
+        config_contents = []
+        try:
+            if os.path.exists('/config'):
+                config_contents = os.listdir('/config')
+        except Exception as e:
+            logger.error(f"Error listing config directory: {e}")
+        
+        return jsonify({
+            'current_database_path': ha_db.db_path,
+            'database_exists': os.path.exists(ha_db.db_path),
+            'config_directory_contents': config_contents,
+            'db_files_in_config': db_files,
+            'working_directory': os.getcwd(),
+            'environment_variables': {
+                'DATABASE_PATH': os.getenv('DATABASE_PATH'),
+                'HOME': os.getenv('HOME'),
+                'USER': os.getenv('USER')
+            }
+        })
+    except Exception as e:
+        logger.error(f"Debug endpoint error: {e}")
+        return jsonify({
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
 @app.route('/health', methods=['GET'])
 def health_check():
