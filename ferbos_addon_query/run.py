@@ -106,10 +106,17 @@ class HomeAssistantDB:
             cursor.execute(query, params)
             rows = cursor.fetchall()
             
-            # Convert rows to list of dictionaries
+            # Convert rows to list of dictionaries with proper JSON serialization
             results = []
             for row in rows:
-                results.append(dict(row))
+                row_dict = {}
+                for key in row.keys():
+                    value = row[key]
+                    # Convert bytes to string for JSON serialization
+                    if isinstance(value, bytes):
+                        value = value.decode('utf-8', errors='ignore')
+                    row_dict[key] = value
+                results.append(row_dict)
             
             conn.close()
             return results
@@ -313,6 +320,28 @@ def execute_query():
         return jsonify({
             'query': query,
             'params': params,
+            'results': results,
+            'count': len(results)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/query', methods=['GET'])
+def execute_query_get():
+    """Execute a custom SQL query via GET (for simple queries)"""
+    try:
+        query = request.args.get('q', '')
+        if not query:
+            return jsonify({'error': 'Query parameter "q" is required'}), 400
+        
+        # Basic security check - only allow SELECT queries
+        if not query.strip().upper().startswith('SELECT'):
+            return jsonify({'error': 'Only SELECT queries are allowed'}), 400
+        
+        results = ha_db.execute_query(query)
+        
+        return jsonify({
+            'query': query,
             'results': results,
             'count': len(results)
         })
