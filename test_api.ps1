@@ -1,7 +1,7 @@
 # PowerShell test script for Ferbos Mini Addon API
 
 # Configuration
-$HA_IP = "localhost"
+$HA_IP = "192.168.68.102"
 $PORT = "8080"
 $BASE_URL = "http://${HA_IP}:${PORT}"
 
