@@ -8,7 +8,7 @@ import httpx
 app = FastAPI()
 
 # Configuration - Update these for your local setup
-ADDON_BASE_URL = "http://localhost:8080"  # Your local addon URL
+ADDON_BASE_URL = "http://192.168.68.102:8080"  # Your Home Assistant IP
 ADDON_API_KEY = "your-secure-api-key-here"  # Your addon API key from config
 
 @app.post("/ws_bridge")

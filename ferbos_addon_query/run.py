@@ -53,6 +53,8 @@ class Config:
         self.api_key = os.getenv('API_KEY', '')
         self.enable_websocket = os.getenv('ENABLE_WEBSOCKET', 'true').lower() == 'true'
         self.rate_limit = int(os.getenv('RATE_LIMIT', 100))
+        self.allow_all_queries = os.getenv('ALLOW_ALL_QUERIES', 'false').lower() == 'true'
+        self.allowed_tables = os.getenv('ALLOWED_TABLES', '').split(',') if os.getenv('ALLOWED_TABLES') else []
         
         # Load from options.json if available
         self.load_options()
@@ -70,6 +72,8 @@ class Config:
                     self.api_key = options.get('api_key', self.api_key)
                     self.enable_websocket = options.get('enable_websocket', self.enable_websocket)
                     self.rate_limit = options.get('rate_limit', self.rate_limit)
+                    self.allow_all_queries = options.get('allow_all_queries', self.allow_all_queries)
+                    self.allowed_tables = options.get('allowed_tables', self.allowed_tables)
                 logger.info("Loaded configuration from options.json")
         except Exception as e:
             logger.warning(f"Could not load options.json: {e}")
@@ -323,9 +327,15 @@ def handle_subscribe_entity(data):
 def handle_query_database(data):
     """Handle database queries via WebSocket"""
     query = data.get('query', '')
-    if not query or not query.strip().upper().startswith('SELECT'):
-        emit('query_error', {'error': 'Only SELECT queries are allowed'})
-        return
+        if not query:
+            emit('query_error', {'error': 'Query is required'})
+            return
+        
+        # Validate query safety
+        validation = validate_query_safety(query)
+        if not validation['allowed']:
+            emit('query_error', {'error': validation['reason']})
+            return
     
     try:
         results = ha_db.execute_query(query)
@@ -437,6 +447,47 @@ def ws_bridge():
             'error': str(e),
             'timestamp': datetime.now().isoformat()
         }), 500
+
+def validate_query_safety(query: str) -> dict:
+    """Validate query for safety and permissions"""
+    query_upper = query.strip().upper()
+    
+    # Always allow SELECT queries
+    if query_upper.startswith('SELECT'):
+        return {'allowed': True, 'reason': 'SELECT queries are always allowed'}
+    
+    # Check if all queries are enabled
+    if not config.allow_all_queries:
+        return {
+            'allowed': False, 
+            'reason': 'Only SELECT queries are allowed. Enable allow_all_queries in config to allow other query types.'
+        }
+    
+    # Check for dangerous operations
+    dangerous_keywords = ['DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'VACUUM', 'REINDEX']
+    for keyword in dangerous_keywords:
+        if keyword in query_upper:
+            return {
+                'allowed': False,
+                'reason': f'{keyword} operations are not allowed for safety'
+            }
+    
+    # Check table restrictions
+    if config.allowed_tables:
+        # Extract table names from query (basic parsing)
+        import re
+        table_matches = re.findall(r'FROM\s+(\w+)', query_upper)
+        table_matches.extend(re.findall(r'INTO\s+(\w+)', query_upper))
+        table_matches.extend(re.findall(r'UPDATE\s+(\w+)', query_upper))
+        
+        for table in table_matches:
+            if table not in config.allowed_tables:
+                return {
+                    'allowed': False,
+                    'reason': f'Table {table} is not in allowed_tables list'
+                }
+    
+    return {'allowed': True, 'reason': 'Query passed safety checks'}
 
 def route_bridge_method(method: str, args: dict) -> dict:
     """Route bridge method calls to appropriate addon functions"""
@@ -615,16 +666,30 @@ def execute_bridge_query(args):
         if not query:
             return {'error': 'Query is required', 'status_code': 400}
         
-        if not query.strip().upper().startswith('SELECT'):
-            return {'error': 'Only SELECT queries are allowed', 'status_code': 400}
+        # Validate query safety
+        validation = validate_query_safety(query)
+        if not validation['allowed']:
+            return {'error': validation['reason'], 'status_code': 400}
         
+        # Execute query
         results = ha_db.execute_query(query, tuple(params))
-        return {
-            'query': query,
-            'params': params,
-            'results': results,
-            'count': len(results)
-        }
+        
+        # For non-SELECT queries, return affected rows count
+        query_upper = query.strip().upper()
+        if query_upper.startswith(('INSERT', 'UPDATE', 'DELETE')):
+            return {
+                'query': query,
+                'params': params,
+                'affected_rows': len(results) if results else 0,
+                'message': f'Query executed successfully. {len(results) if results else 0} rows affected.'
+            }
+        else:
+            return {
+                'query': query,
+                'params': params,
+                'results': results,
+                'count': len(results)
+            }
     except Exception as e:
         logger.error(f"Bridge query error: {e}")
         return {'error': str(e), 'status_code': 500}
@@ -693,8 +758,10 @@ def external_query():
         query = data['query']
         params = data.get('params', [])
         
-        if not query.strip().upper().startswith('SELECT'):
-            return jsonify({'error': 'Only SELECT queries are allowed'}), 400
+        # Validate query safety
+        validation = validate_query_safety(query)
+        if not validation['allowed']:
+            return jsonify({'error': validation['reason']}), 400
         
         results = ha_db.execute_query(query, tuple(params))
         
@@ -867,8 +934,10 @@ def execute_query():
         query = data['query']
         params = data.get('params', [])
         
-        if not query.strip().upper().startswith('SELECT'):
-            return jsonify({'error': 'Only SELECT queries are allowed'}), 400
+        # Validate query safety
+        validation = validate_query_safety(query)
+        if not validation['allowed']:
+            return jsonify({'error': validation['reason']}), 400
         
         results = ha_db.execute_query(query, tuple(params))
         
@@ -889,8 +958,10 @@ def execute_query_get():
         if not query:
             return jsonify({'error': 'Query parameter "q" is required'}), 400
         
-        if not query.strip().upper().startswith('SELECT'):
-            return jsonify({'error': 'Only SELECT queries are allowed'}), 400
+        # Validate query safety
+        validation = validate_query_safety(query)
+        if not validation['allowed']:
+            return jsonify({'error': validation['reason']}), 400
         
         results = ha_db.execute_query(query)
         

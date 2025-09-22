@@ -16,7 +16,9 @@
     "enable_external_access": true,
     "api_key": "",
     "enable_websocket": true,
-    "rate_limit": 100
+    "rate_limit": 100,
+    "allow_all_queries": false,
+    "allowed_tables": []
   },
   "schema": {
     "port": "int",
@@ -24,7 +26,9 @@
     "enable_external_access": "bool",
     "api_key": "str",
     "enable_websocket": "bool",
-    "rate_limit": "int"
+    "rate_limit": "int",
+    "allow_all_queries": "bool",
+    "allowed_tables": ["str"]
   },
   "ports": {
     "8080/tcp": 8080
