@@ -327,15 +327,15 @@ def handle_subscribe_entity(data):
 def handle_query_database(data):
     """Handle database queries via WebSocket"""
     query = data.get('query', '')
-        if not query:
-            emit('query_error', {'error': 'Query is required'})
-            return
-        
-        # Validate query safety
-        validation = validate_query_safety(query)
-        if not validation['allowed']:
-            emit('query_error', {'error': validation['reason']})
-            return
+    if not query:
+        emit('query_error', {'error': 'Query is required'})
+        return
+    
+    # Validate query safety
+    validation = validate_query_safety(query)
+    if not validation['allowed']:
+        emit('query_error', {'error': validation['reason']})
+        return
     
     try:
         results = ha_db.execute_query(query)
