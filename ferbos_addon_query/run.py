@@ -406,6 +406,9 @@ def ws_bridge():
         args = data.get('args', {})
         token = data.get('token', '')
         
+        # Debug logging
+        logger.info(f"Bridge request - Method: {method}, Args: {args}, Token: {token[:20]}..." if token else "No token")
+        
         # Validate required fields
         if not method:
             return jsonify({'error': 'Method is required'}), 400
@@ -604,6 +607,11 @@ def execute_bridge_query(args):
         query = args.get('query', '')
         params = args.get('params', [])
         
+        # Debug logging
+        logger.info(f"Bridge query args: {args}")
+        logger.info(f"Extracted query: '{query}'")
+        logger.info(f"Extracted params: {params}")
+        
         if not query:
             return {'error': 'Query is required', 'status_code': 400}
         
@@ -618,6 +626,7 @@ def execute_bridge_query(args):
             'count': len(results)
         }
     except Exception as e:
+        logger.error(f"Bridge query error: {e}")
         return {'error': str(e), 'status_code': 500}
 
 def get_table_schema_bridge(args):
