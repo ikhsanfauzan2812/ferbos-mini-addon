@@ -26,7 +26,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             result = await client.proxy_query(session, msg.get("args", {}))
         connection.send_result(msg["id"], result)
 
-    hass.components.websocket_api.async_register_command(ws_ferbos_query)
+    websocket_api.async_register_command(ws_ferbos_query)
     return True
 
 
