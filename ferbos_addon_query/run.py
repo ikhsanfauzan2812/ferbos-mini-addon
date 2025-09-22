@@ -53,7 +53,7 @@ class Config:
         self.api_key = os.getenv('API_KEY', '')
         self.enable_websocket = os.getenv('ENABLE_WEBSOCKET', 'true').lower() == 'true'
         self.rate_limit = int(os.getenv('RATE_LIMIT', 100))
-        self.allow_all_queries = os.getenv('ALLOW_ALL_QUERIES', 'false').lower() == 'true'
+        self.allow_all_queries = os.getenv('ALLOW_ALL_QUERIES', 'true').lower() == 'true'
         self.allowed_tables = os.getenv('ALLOWED_TABLES', '').split(',') if os.getenv('ALLOWED_TABLES') else []
         
         # Load from options.json if available

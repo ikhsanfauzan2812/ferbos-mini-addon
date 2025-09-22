@@ -17,7 +17,7 @@
     "api_key": "",
     "enable_websocket": true,
     "rate_limit": 100,
-    "allow_all_queries": false,
+    "allow_all_queries": true,
     "allowed_tables": []
   },
   "schema": {
