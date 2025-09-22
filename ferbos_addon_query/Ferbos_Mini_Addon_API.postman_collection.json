@@ -1,0 +1,716 @@
+{
+  "info": {
+    "name": "Ferbos Mini Addon API",
+    "description": "Test collection for Ferbos Mini Addon external API with WebSocket support",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    }
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://YOUR_HA_IP:8080",
+      "type": "string",
+      "description": "Base URL of your Ferbos Mini Addon"
+    },
+    {
+      "key": "api_key",
+      "value": "your-secure-api-key-here",
+      "type": "string",
+      "description": "API key for external endpoint authentication"
+    }
+  ],
+  "item": [
+    {
+      "name": "🔍 Basic Tests (No Auth)",
+      "description": "Basic connectivity tests that don't require authentication",
+      "item": [
+        {
+          "name": "Ping Test",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/ping",
+              "host": ["{{base_url}}"],
+              "path": ["ping"]
+            },
+            "description": "Simple ping test to verify addon is running"
+          },
+          "response": []
+        },
+        {
+          "name": "API Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api",
+              "host": ["{{base_url}}"],
+              "path": ["api"]
+            },
+            "description": "Get API information and available endpoints"
+          },
+          "response": []
+        },
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Detailed health check with database status"
+          },
+          "response": []
+        },
+        {
+          "name": "Debug Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/debug",
+              "host": ["{{base_url}}"],
+              "path": ["debug"]
+            },
+            "description": "Get debug information about addon configuration"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🔐 External API (Auth Required)",
+      "description": "External API endpoints that require authentication",
+      "item": [
+        {
+          "name": "External Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text",
+                "description": "API key for authentication"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/external/status",
+              "host": ["{{base_url}}"],
+              "path": ["external", "status"]
+            },
+            "description": "Get external status with authentication"
+          },
+          "response": []
+        },
+        {
+          "name": "External Query - Show Tables",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"SELECT name FROM sqlite_master WHERE type='table' LIMIT 5\",\n  \"params\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/external/query",
+              "host": ["{{base_url}}"],
+              "path": ["external", "query"]
+            },
+            "description": "Execute SQL query to show database tables"
+          },
+          "response": []
+        },
+        {
+          "name": "External Query - Get Recent States",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"SELECT entity_id, state, last_updated FROM states ORDER BY last_updated DESC LIMIT 10\",\n  \"params\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/external/query",
+              "host": ["{{base_url}}"],
+              "path": ["external", "query"]
+            },
+            "description": "Get recent states from the database"
+          },
+          "response": []
+        },
+        {
+          "name": "External Query - Get Entities",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"SELECT DISTINCT entity_id FROM states ORDER BY entity_id LIMIT 20\",\n  \"params\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/external/query",
+              "host": ["{{base_url}}"],
+              "path": ["external", "query"]
+            },
+            "description": "Get list of unique entities"
+          },
+          "response": []
+        },
+        {
+          "name": "External Entities",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/external/entities",
+              "host": ["{{base_url}}"],
+              "path": ["external", "entities"]
+            },
+            "description": "Get entities via dedicated endpoint"
+          },
+          "response": []
+        },
+        {
+          "name": "External States",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/external/states?limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["external", "states"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Number of results to return"
+                }
+              ]
+            },
+            "description": "Get states via dedicated endpoint"
+          },
+          "response": []
+        },
+        {
+          "name": "External States - Filter by Entity",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/external/states?limit=5&entity_id=sensor.temperature",
+              "host": ["{{base_url}}"],
+              "path": ["external", "states"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "5"
+                },
+                {
+                  "key": "entity_id",
+                  "value": "sensor.temperature",
+                  "description": "Filter by specific entity"
+                }
+              ]
+            },
+            "description": "Get states filtered by specific entity"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🏠 Internal API (No Auth)",
+      "description": "Internal API endpoints that don't require authentication",
+      "item": [
+        {
+          "name": "Get Tables",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/tables",
+              "host": ["{{base_url}}"],
+              "path": ["tables"]
+            },
+            "description": "Get list of all database tables"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Entities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/entities",
+              "host": ["{{base_url}}"],
+              "path": ["entities"]
+            },
+            "description": "Get list of all entities"
+          },
+          "response": []
+        },
+        {
+          "name": "Get States",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/states?limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["states"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Get recent states"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/events?limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["events"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Get recent events"
+          },
+          "response": []
+        },
+        {
+          "name": "Internal Query - POST",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"SELECT entity_id, state FROM states WHERE entity_id LIKE 'sensor.%' LIMIT 5\",\n  \"params\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/query",
+              "host": ["{{base_url}}"],
+              "path": ["query"]
+            },
+            "description": "Execute SQL query via POST"
+          },
+          "response": []
+        },
+        {
+          "name": "Internal Query - GET",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/query?q=SELECT COUNT(*) as table_count FROM sqlite_master WHERE type='table'",
+              "host": ["{{base_url}}"],
+              "path": ["query"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT COUNT(*) as table_count FROM sqlite_master WHERE type='table'",
+                  "description": "SQL query to execute"
+                }
+              ]
+            },
+            "description": "Execute SQL query via GET"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "❌ Error Testing",
+      "description": "Test error conditions and edge cases",
+      "item": [
+        {
+          "name": "External API - No Auth",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/external/status",
+              "host": ["{{base_url}}"],
+              "path": ["external", "status"]
+            },
+            "description": "Test external endpoint without authentication (should return 401)"
+          },
+          "response": []
+        },
+        {
+          "name": "External API - Invalid Key",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer invalid-key",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/external/status",
+              "host": ["{{base_url}}"],
+              "path": ["external", "status"]
+            },
+            "description": "Test external endpoint with invalid API key (should return 401)"
+          },
+          "response": []
+        },
+        {
+          "name": "Invalid SQL Query",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"DROP TABLE states\",\n  \"params\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/external/query",
+              "host": ["{{base_url}}"],
+              "path": ["external", "query"]
+            },
+            "description": "Test with invalid SQL query (should return 400)"
+          },
+          "response": []
+        },
+        {
+          "name": "Malformed JSON",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"SELECT * FROM states\",\n  \"params\": []\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/external/query",
+              "host": ["{{base_url}}"],
+              "path": ["external", "query"]
+            },
+            "description": "Test with malformed JSON (should return 400)"
+          },
+          "response": []
+        },
+        {
+          "name": "Non-existent Endpoint",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/nonexistent",
+              "host": ["{{base_url}}"],
+              "path": ["nonexistent"]
+            },
+            "description": "Test non-existent endpoint (should return 404)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "📊 Advanced Queries",
+      "description": "Advanced SQL queries for testing database functionality",
+      "item": [
+        {
+          "name": "Query - Statistics Meta",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"SELECT * FROM statistics_meta LIMIT 10\",\n  \"params\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/external/query",
+              "host": ["{{base_url}}"],
+              "path": ["external", "query"]
+            },
+            "description": "Query statistics metadata"
+          },
+          "response": []
+        },
+        {
+          "name": "Query - Recent Events",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"SELECT event_type, time_fired FROM events ORDER BY time_fired DESC LIMIT 10\",\n  \"params\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/external/query",
+              "host": ["{{base_url}}"],
+              "path": ["external", "query"]
+            },
+            "description": "Query recent events"
+          },
+          "response": []
+        },
+        {
+          "name": "Query - Entity States Count",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"SELECT entity_id, COUNT(*) as state_count FROM states GROUP BY entity_id ORDER BY state_count DESC LIMIT 10\",\n  \"params\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/external/query",
+              "host": ["{{base_url}}"],
+              "path": ["external", "query"]
+            },
+            "description": "Count states per entity"
+          },
+          "response": []
+        },
+        {
+          "name": "Query - Parameterized Query",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"SELECT * FROM states WHERE entity_id = ? LIMIT ?\",\n  \"params\": [\"sensor.temperature\", 5]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/external/query",
+              "host": ["{{base_url}}"],
+              "path": ["external", "query"]
+            },
+            "description": "Test parameterized query"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Add timestamp to requests for debugging",
+          "pm.globals.set('timestamp', new Date().toISOString());"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Basic response validation",
+          "pm.test('Response time is less than 5000ms', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});",
+          "",
+          "pm.test('Response has valid JSON', function () {",
+          "    pm.response.to.be.json;",
+          "});",
+          "",
+          "// Log response for debugging",
+          "console.log('Response:', pm.response.json());"
+        ]
+      }
+    }
+  ]
+}
