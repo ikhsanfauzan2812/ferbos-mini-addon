@@ -9,14 +9,22 @@
   "startup": "application",
   "boot": "auto",
   "map": ["config:rw"],
-  "ingress": false,
+  "ingress": true,
   "options": {
     "port": 8080,
-    "database_path": "/config/home-assistant_v2.db"
+    "database_path": "/config/home-assistant_v2.db",
+    "enable_external_access": true,
+    "api_key": "",
+    "enable_websocket": true,
+    "rate_limit": 100
   },
   "schema": {
     "port": "int",
-    "database_path": "str"
+    "database_path": "str",
+    "enable_external_access": "bool",
+    "api_key": "str",
+    "enable_websocket": "bool",
+    "rate_limit": "int"
   },
   "ports": {
     "8080/tcp": 8080

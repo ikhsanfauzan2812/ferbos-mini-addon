@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ferbos Mini Addon - Database Query Interface</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -25,9 +26,54 @@
             padding: 20px;
             text-align: center;
         }
-        .query-section {
+        .status-bar {
+            background: #e3f2fd;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+        }
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4caf50;
+        }
+        .status-dot.disconnected {
+            background: #f44336;
+        }
+        .tabs {
+            display: flex;
+            background: #f8f9fa;
+            border-bottom: 1px solid #ddd;
+        }
+        .tab {
+            padding: 15px 20px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s;
+        }
+        .tab.active {
+            background: white;
+            border-bottom-color: #1976d2;
+            color: #1976d2;
+        }
+        .tab-content {
+            display: none;
             padding: 20px;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .query-section {
             border-bottom: 1px solid #eee;
+            margin-bottom: 20px;
         }
         .query-input {
             width: 100%;
@@ -61,8 +107,14 @@
         .btn-secondary:hover {
             background: #616161;
         }
+        .btn-success {
+            background: #4caf50;
+        }
+        .btn-success:hover {
+            background: #45a049;
+        }
         .results-section {
-            padding: 20px;
+            margin-top: 20px;
         }
         .results-header {
             display: flex;
@@ -106,6 +158,13 @@
             border-radius: 4px;
             margin: 10px 0;
         }
+        .success {
+            background: #e8f5e8;
+            color: #2e7d32;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
         .loading {
             text-align: center;
             padding: 20px;
@@ -127,46 +186,329 @@
         .quick-query:hover {
             background: #bbdefb;
         }
+        .api-docs {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .api-endpoint {
+            background: white;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #1976d2;
+            border-radius: 0 4px 4px 0;
+        }
+        .method {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        .method.get { background: #4caf50; color: white; }
+        .method.post { background: #ff9800; color: white; }
+        .code {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+        .websocket-log {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            height: 200px;
+            overflow-y: auto;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+        .log-entry.info { background: #e3f2fd; }
+        .log-entry.success { background: #e8f5e8; }
+        .log-entry.error { background: #ffebee; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>🔍 Ferbos Mini Addon</h1>
-            <p>Home Assistant Database Query Interface</p>
+            <p>Home Assistant Database Query Interface with External API & WebSocket Support</p>
         </div>
         
-        <div class="query-section">
-            <h3>SQL Query</h3>
-            <textarea id="queryInput" class="query-input" placeholder="Enter your SQL query here...">SELECT name FROM sqlite_master WHERE type='table'</textarea>
-            
-            <div class="query-buttons">
-                <button class="btn" onclick="executeQuery()">Execute Query</button>
-                <button class="btn btn-secondary" onclick="clearQuery()">Clear</button>
+        <div class="status-bar">
+            <div class="status-indicator">
+                <div id="wsStatus" class="status-dot disconnected"></div>
+                <span id="wsStatusText">WebSocket: Disconnected</span>
             </div>
-            
-            <div class="quick-queries">
-                <strong>Quick Queries:</strong><br>
-                <span class="quick-query" onclick="setQuery('SELECT name FROM sqlite_master WHERE type=\'table\'')">Show Tables</span>
-                <span class="quick-query" onclick="setQuery('SELECT DISTINCT entity_id FROM states ORDER BY entity_id LIMIT 20')">Show Entities</span>
-                <span class="quick-query" onclick="setQuery('SELECT entity_id, state, last_updated FROM states ORDER BY last_updated DESC LIMIT 10')">Recent States</span>
-                <span class="quick-query" onclick="setQuery('SELECT * FROM statistics_meta LIMIT 10')">Statistics Meta</span>
-                <span class="quick-query" onclick="setQuery('SELECT * FROM events ORDER BY time_fired DESC LIMIT 10')">Recent Events</span>
+            <div>
+                <span id="dbStatus">Database: Loading...</span>
             </div>
         </div>
         
-        <div class="results-section">
-            <div class="results-header">
-                <h3>Results</h3>
-                <div id="resultsCount" class="results-count"></div>
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('query')">Database Query</div>
+            <div class="tab" onclick="switchTab('websocket')">WebSocket</div>
+            <div class="tab" onclick="switchTab('api')">External API</div>
+            <div class="tab" onclick="switchTab('docs')">Documentation</div>
+        </div>
+        
+        <!-- Database Query Tab -->
+        <div id="query-tab" class="tab-content active">
+            <div class="query-section">
+                <h3>SQL Query</h3>
+                <textarea id="queryInput" class="query-input" placeholder="Enter your SQL query here...">SELECT name FROM sqlite_master WHERE type='table'</textarea>
+                
+                <div class="query-buttons">
+                    <button class="btn" onclick="executeQuery()">Execute Query</button>
+                    <button class="btn btn-secondary" onclick="clearQuery()">Clear</button>
+                    <button class="btn btn-success" onclick="executeWebSocketQuery()">Execute via WebSocket</button>
+                </div>
+                
+                <div class="quick-queries">
+                    <strong>Quick Queries:</strong><br>
+                    <span class="quick-query" onclick="setQuery('SELECT name FROM sqlite_master WHERE type=\'table\'')">Show Tables</span>
+                    <span class="quick-query" onclick="setQuery('SELECT DISTINCT entity_id FROM states ORDER BY entity_id LIMIT 20')">Show Entities</span>
+                    <span class="quick-query" onclick="setQuery('SELECT entity_id, state, last_updated FROM states ORDER BY last_updated DESC LIMIT 10')">Recent States</span>
+                    <span class="quick-query" onclick="setQuery('SELECT * FROM statistics_meta LIMIT 10')">Statistics Meta</span>
+                    <span class="quick-query" onclick="setQuery('SELECT * FROM events ORDER BY time_fired DESC LIMIT 10')">Recent Events</span>
+                </div>
             </div>
-            <div id="resultsContainer">
-                <div class="loading">Enter a query and click Execute to see results</div>
+            
+            <div class="results-section">
+                <div class="results-header">
+                    <h3>Results</h3>
+                    <div id="resultsCount" class="results-count"></div>
+                </div>
+                <div id="resultsContainer">
+                    <div class="loading">Enter a query and click Execute to see results</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- WebSocket Tab -->
+        <div id="websocket-tab" class="tab-content">
+            <h3>WebSocket Connection</h3>
+            <div class="api-docs">
+                <p><strong>Real-time database monitoring and query execution via WebSocket</strong></p>
+                <button class="btn" onclick="connectWebSocket()">Connect</button>
+                <button class="btn btn-secondary" onclick="disconnectWebSocket()">Disconnect</button>
+            </div>
+            
+            <div class="websocket-log" id="wsLog">
+                <div class="log-entry info">WebSocket log will appear here...</div>
+            </div>
+        </div>
+        
+        <!-- External API Tab -->
+        <div id="api-tab" class="tab-content">
+            <h3>External API Testing</h3>
+            <div class="api-docs">
+                <p><strong>Test external API endpoints with authentication</strong></p>
+                <div>
+                    <label>API Key (optional):</label>
+                    <input type="text" id="apiKey" placeholder="Enter API key if configured" style="width: 300px; padding: 5px; margin: 5px;">
+                </div>
+                <button class="btn" onclick="testExternalAPI()">Test External Status</button>
+                <button class="btn btn-secondary" onclick="testExternalQuery()">Test External Query</button>
+            </div>
+            
+            <div id="apiResults" class="results-section">
+                <div class="loading">API test results will appear here...</div>
+            </div>
+        </div>
+        
+        <!-- Documentation Tab -->
+        <div id="docs-tab" class="tab-content">
+            <h3>API Documentation</h3>
+            
+            <div class="api-docs">
+                <h4>Internal Endpoints (No Authentication Required)</h4>
+                <div class="api-endpoint">
+                    <span class="method get">GET</span> <code>/api</code> - API information
+                </div>
+                <div class="api-endpoint">
+                    <span class="method get">GET</span> <code>/status</code> - Addon status
+                </div>
+                <div class="api-endpoint">
+                    <span class="method get">GET</span> <code>/ping</code> - Health check
+                </div>
+                <div class="api-endpoint">
+                    <span class="method get">GET</span> <code>/tables</code> - List database tables
+                </div>
+                <div class="api-endpoint">
+                    <span class="method get">GET</span> <code>/entities</code> - List entities
+                </div>
+                <div class="api-endpoint">
+                    <span class="method get">GET</span> <code>/states</code> - Get states
+                </div>
+                <div class="api-endpoint">
+                    <span class="method post">POST</span> <code>/query</code> - Execute SQL query
+                </div>
+            </div>
+            
+            <div class="api-docs">
+                <h4>External Endpoints (Authentication Required)</h4>
+                <div class="api-endpoint">
+                    <span class="method get">GET</span> <code>/external/status</code> - External status
+                </div>
+                <div class="api-endpoint">
+                    <span class="method post">POST</span> <code>/external/query</code> - External query
+                </div>
+                <div class="api-endpoint">
+                    <span class="method get">GET</span> <code>/external/entities</code> - External entities
+                </div>
+                <div class="api-endpoint">
+                    <span class="method get">GET</span> <code>/external/states</code> - External states
+                </div>
+            </div>
+            
+            <div class="api-docs">
+                <h4>WebSocket Endpoints</h4>
+                <div class="api-endpoint">
+                    <code>/ws</code> - WebSocket connection for real-time updates
+                </div>
+                <div class="code">
+                    Events:
+                    - connect: Connection established
+                    - disconnect: Connection closed
+                    - query_database: Execute SQL query
+                    - subscribe_entity: Subscribe to entity updates
+                    - database_updated: Database change notification
+                </div>
+            </div>
+            
+            <div class="api-docs">
+                <h4>Authentication</h4>
+                <p>External endpoints require authentication via API key in the Authorization header:</p>
+                <div class="code">
+                    Authorization: Bearer YOUR_API_KEY
+                </div>
+            </div>
+            
+            <div class="api-docs">
+                <h4>Rate Limiting</h4>
+                <p>External endpoints are rate limited to prevent abuse. Default limit is 100 requests per minute per IP.</p>
             </div>
         </div>
     </div>
 
     <script>
+        let socket = null;
+        let wsConnected = false;
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            checkDatabaseStatus();
+            connectWebSocket();
+        });
+        
+        // Tab switching
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(tabName + '-tab').classList.add('active');
+            event.target.classList.add('active');
+        }
+        
+        // Database status check
+        async function checkDatabaseStatus() {
+            try {
+                const response = await fetch('/health');
+                const data = await response.json();
+                document.getElementById('dbStatus').textContent = 
+                    `Database: ${data.database_status} (${data.database_path})`;
+            } catch (error) {
+                document.getElementById('dbStatus').textContent = 'Database: Error';
+            }
+        }
+        
+        // WebSocket functions
+        function connectWebSocket() {
+            if (socket) {
+                socket.disconnect();
+            }
+            
+            socket = io('/ws');
+            
+            socket.on('connect', function() {
+                wsConnected = true;
+                updateWebSocketStatus(true);
+                addWsLog('Connected to WebSocket', 'success');
+            });
+            
+            socket.on('disconnect', function() {
+                wsConnected = false;
+                updateWebSocketStatus(false);
+                addWsLog('Disconnected from WebSocket', 'error');
+            });
+            
+            socket.on('connected', function(data) {
+                addWsLog('Server: ' + data.message, 'info');
+            });
+            
+            socket.on('query_result', function(data) {
+                addWsLog(`Query result: ${data.count} rows`, 'success');
+                displayResults(data);
+            });
+            
+            socket.on('query_error', function(data) {
+                addWsLog('Query error: ' + data.error, 'error');
+                displayError(data.error);
+            });
+            
+            socket.on('database_updated', function(data) {
+                addWsLog('Database updated: ' + data.message, 'info');
+            });
+        }
+        
+        function disconnectWebSocket() {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+            }
+        }
+        
+        function updateWebSocketStatus(connected) {
+            const statusDot = document.getElementById('wsStatus');
+            const statusText = document.getElementById('wsStatusText');
+            
+            if (connected) {
+                statusDot.classList.remove('disconnected');
+                statusText.textContent = 'WebSocket: Connected';
+            } else {
+                statusDot.classList.add('disconnected');
+                statusText.textContent = 'WebSocket: Disconnected';
+            }
+        }
+        
+        function addWsLog(message, type = 'info') {
+            const log = document.getElementById('wsLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${timestamp}] ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        // Query functions
         function setQuery(query) {
             document.getElementById('queryInput').value = query;
         }
@@ -185,7 +527,6 @@
             const resultsContainer = document.getElementById('resultsContainer');
             const resultsCount = document.getElementById('resultsCount');
             
-            // Show loading
             resultsContainer.innerHTML = '<div class="loading">Executing query...</div>';
             resultsCount.textContent = '';
             
@@ -213,6 +554,89 @@
             }
         }
         
+        function executeWebSocketQuery() {
+            const query = document.getElementById('queryInput').value.trim();
+            if (!query) {
+                alert('Please enter a query');
+                return;
+            }
+            
+            if (!wsConnected) {
+                alert('WebSocket not connected');
+                return;
+            }
+            
+            socket.emit('query_database', { query: query });
+            addWsLog('Sent query via WebSocket: ' + query, 'info');
+        }
+        
+        // External API functions
+        async function testExternalAPI() {
+            const apiKey = document.getElementById('apiKey').value;
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            
+            if (apiKey) {
+                headers['Authorization'] = 'Bearer ' + apiKey;
+            }
+            
+            try {
+                const response = await fetch('/external/status', {
+                    method: 'GET',
+                    headers: headers
+                });
+                
+                const data = await response.json();
+                displayApiResult('External Status', response.status, data);
+            } catch (error) {
+                displayApiResult('External Status', 'error', { error: error.message });
+            }
+        }
+        
+        async function testExternalQuery() {
+            const apiKey = document.getElementById('apiKey').value;
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            
+            if (apiKey) {
+                headers['Authorization'] = 'Bearer ' + apiKey;
+            }
+            
+            try {
+                const response = await fetch('/external/query', {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({
+                        query: 'SELECT name FROM sqlite_master WHERE type=\'table\' LIMIT 5',
+                        params: []
+                    })
+                });
+                
+                const data = await response.json();
+                displayApiResult('External Query', response.status, data);
+            } catch (error) {
+                displayApiResult('External Query', 'error', { error: error.message });
+            }
+        }
+        
+        function displayApiResult(title, status, data) {
+            const container = document.getElementById('apiResults');
+            const statusClass = status === 200 ? 'success' : 'error';
+            
+            container.innerHTML = `
+                <div class="results-header">
+                    <h3>${title} Result</h3>
+                    <span class="results-count">Status: ${status}</span>
+                </div>
+                <div class="${statusClass}">
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                </div>
+            `;
+        }
+        
+        // Result display functions
         function displayResults(data) {
             const resultsContainer = document.getElementById('resultsContainer');
             const resultsCount = document.getElementById('resultsCount');
@@ -260,7 +684,7 @@
             return div.innerHTML;
         }
         
-        // Allow Enter key to execute query (Ctrl+Enter)
+        // Keyboard shortcuts
         document.getElementById('queryInput').addEventListener('keydown', function(e) {
             if (e.ctrlKey && e.key === 'Enter') {
                 executeQuery();

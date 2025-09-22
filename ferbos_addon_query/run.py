@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
 """
 Home Assistant Database Query Addon
-Provides HTTP API endpoints to query the Home Assistant database
+Provides HTTP API endpoints and WebSocket support to query the Home Assistant database
+Supports external access with authentication and real-time updates
 """
 
 import os
 import json
 import sqlite3
 import logging
-from datetime import datetime
+import hashlib
+import time
+from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
+from functools import wraps
+from collections import defaultdict, deque
+
 from flask import Flask, request, jsonify, render_template
+from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask_cors import CORS
+import eventlet
 
 # Configure logging
 logging.basicConfig(
@@ -20,25 +29,113 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'ferbos-addon-secret-key')
+
+# Initialize SocketIO with CORS support
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+
+# Initialize CORS
+CORS(app, resources={
+    r"/api/*": {"origins": "*"},
+    r"/external/*": {"origins": "*"},
+    r"/ws/*": {"origins": "*"}
+})
+
+# Rate limiting storage
+rate_limit_storage = defaultdict(lambda: deque())
+
+class Config:
+    """Configuration management"""
+    def __init__(self):
+        self.port = int(os.getenv('PORT', 8080))
+        self.database_path = os.getenv('DATABASE_PATH', '/config/home-assistant_v2.db')
+        self.enable_external_access = os.getenv('ENABLE_EXTERNAL_ACCESS', 'true').lower() == 'true'
+        self.api_key = os.getenv('API_KEY', '')
+        self.enable_websocket = os.getenv('ENABLE_WEBSOCKET', 'true').lower() == 'true'
+        self.rate_limit = int(os.getenv('RATE_LIMIT', 100))
+        
+        # Load from options.json if available
+        self.load_options()
+    
+    def load_options(self):
+        """Load configuration from options.json"""
+        try:
+            options_path = '/data/options.json'
+            if os.path.exists(options_path):
+                with open(options_path, 'r') as f:
+                    options = json.load(f)
+                    self.port = options.get('port', self.port)
+                    self.database_path = options.get('database_path', self.database_path)
+                    self.enable_external_access = options.get('enable_external_access', self.enable_external_access)
+                    self.api_key = options.get('api_key', self.api_key)
+                    self.enable_websocket = options.get('enable_websocket', self.enable_websocket)
+                    self.rate_limit = options.get('rate_limit', self.rate_limit)
+                logger.info("Loaded configuration from options.json")
+        except Exception as e:
+            logger.warning(f"Could not load options.json: {e}")
+
+config = Config()
+
+def rate_limit(max_requests=100, window=60):
+    """Rate limiting decorator"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            client_ip = request.remote_addr
+            now = time.time()
+            
+            # Clean old requests
+            while rate_limit_storage[client_ip] and rate_limit_storage[client_ip][0] <= now - window:
+                rate_limit_storage[client_ip].popleft()
+            
+            # Check rate limit
+            if len(rate_limit_storage[client_ip]) >= max_requests:
+                return jsonify({'error': 'Rate limit exceeded'}), 429
+            
+            # Add current request
+            rate_limit_storage[client_ip].append(now)
+            
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+def require_auth(f):
+    """Authentication decorator for external endpoints"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not config.enable_external_access:
+            return jsonify({'error': 'External access is disabled'}), 403
+        
+        # Check API key if configured
+        if config.api_key:
+            auth_header = request.headers.get('Authorization')
+            if not auth_header or not auth_header.startswith('Bearer '):
+                return jsonify({'error': 'API key required'}), 401
+            
+            provided_key = auth_header.split(' ')[1]
+            if provided_key != config.api_key:
+                return jsonify({'error': 'Invalid API key'}), 401
+        
+        return f(*args, **kwargs)
+    return decorated_function
 
 class HomeAssistantDB:
-    """Handle Home Assistant database operations"""
+    """Handle Home Assistant database operations with real-time monitoring"""
     
     def __init__(self, db_path: str):
         self.db_path = db_path
+        self.last_modified = 0
         self.ensure_db_exists()
     
     def ensure_db_exists(self):
         """Ensure the database file exists and is accessible"""
         if not os.path.exists(self.db_path):
             logger.warning(f"Database file not found at {self.db_path}")
-            # Create a minimal database structure for testing
             self.create_test_db()
     
     def create_test_db(self):
         """Create a minimal test database structure"""
         try:
-            # Try to create database in a writable location first
             import tempfile
             temp_dir = tempfile.gettempdir()
             temp_db_path = os.path.join(temp_dir, "home_assistant_test.db")
@@ -87,32 +184,45 @@ class HomeAssistantDB:
             conn.commit()
             conn.close()
             
-            # Update the database path to use the test database
             self.db_path = temp_db_path
             logger.info(f"Created test database with sample data at: {temp_db_path}")
         except Exception as e:
             logger.error(f"Error creating test database: {e}")
-            # Fallback: try to use a simple in-memory database
             self.db_path = ":memory:"
             logger.info("Using in-memory database as fallback")
+    
+    def check_for_changes(self):
+        """Check if database has been modified and emit updates via websocket"""
+        try:
+            if os.path.exists(self.db_path):
+                current_modified = os.path.getmtime(self.db_path)
+                if current_modified > self.last_modified:
+                    self.last_modified = current_modified
+                    # Emit database change event
+                    socketio.emit('database_updated', {
+                        'timestamp': datetime.now().isoformat(),
+                        'message': 'Database has been updated'
+                    }, namespace='/ws')
+                    return True
+        except Exception as e:
+            logger.error(f"Error checking database changes: {e}")
+        return False
     
     def execute_query(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
         """Execute a SQL query and return results as list of dictionaries"""
         try:
             conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row  # Enable column access by name
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
             cursor.execute(query, params)
             rows = cursor.fetchall()
             
-            # Convert rows to list of dictionaries with proper JSON serialization
             results = []
             for row in rows:
                 row_dict = {}
                 for key in row.keys():
                     value = row[key]
-                    # Convert bytes to string for JSON serialization
                     if isinstance(value, bytes):
                         value = value.decode('utf-8', errors='ignore')
                     row_dict[key] = value
@@ -122,7 +232,6 @@ class HomeAssistantDB:
             return results
         except Exception as e:
             logger.error(f"Database query error: {e}")
-            # Return empty list instead of raising exception
             return []
     
     def get_tables(self) -> List[str]:
@@ -136,17 +245,16 @@ class HomeAssistantDB:
         query = f"PRAGMA table_info({table_name})"
         return self.execute_query(query)
 
-# Initialize database connection with multiple possible paths
+# Initialize database connection
 def find_home_assistant_db():
     """Find the Home Assistant database file"""
     possible_paths = [
-        '/config/home-assistant_v2.db',  # Standard HA database name
-        '/config/home_assistant_v2.db',  # Alternative naming
-        '/config/home-assistant.db',     # Older versions
-        '/config/home_assistant_v2.db',  # Another variant
+        '/config/home-assistant_v2.db',
+        '/config/home_assistant_v2.db',
+        '/config/home-assistant.db',
+        config.database_path
     ]
     
-    # Check environment variable first
     env_path = os.getenv('DATABASE_PATH')
     if env_path:
         possible_paths.insert(0, env_path)
@@ -159,17 +267,14 @@ def find_home_assistant_db():
     logger.warning("No Home Assistant database found, will create test database")
     return None
 
-db_path = find_home_assistant_db() or '/config/home-assistant_v2.db'
+db_path = find_home_assistant_db() or config.database_path
 logger.info(f"Initializing database connection with path: {db_path}")
-logger.info(f"Current working directory: {os.getcwd()}")
-logger.info(f"Environment variables: DATABASE_PATH={os.getenv('DATABASE_PATH')}")
 
 try:
     ha_db = HomeAssistantDB(db_path)
     logger.info("Database connection initialized successfully")
 except Exception as e:
     logger.error(f"Failed to initialize database connection: {e}")
-    # Create a dummy database object to prevent crashes
     class DummyDB:
         def __init__(self):
             self.db_path = "dummy"
@@ -179,8 +284,60 @@ except Exception as e:
             return []
         def get_table_schema(self, table_name):
             return []
+        def check_for_changes(self):
+            return False
     ha_db = DummyDB()
 
+# WebSocket Events
+@socketio.on('connect', namespace='/ws')
+def handle_connect():
+    """Handle WebSocket connection"""
+    logger.info(f"Client connected: {request.sid}")
+    emit('connected', {
+        'message': 'Connected to Ferbos Addon WebSocket',
+        'timestamp': datetime.now().isoformat(),
+        'database_connected': ha_db.db_path != "dummy"
+    })
+
+@socketio.on('disconnect', namespace='/ws')
+def handle_disconnect():
+    """Handle WebSocket disconnection"""
+    logger.info(f"Client disconnected: {request.sid}")
+
+@socketio.on('join_room', namespace='/ws')
+def handle_join_room(data):
+    """Handle joining a room for specific updates"""
+    room = data.get('room', 'general')
+    join_room(room)
+    emit('joined_room', {'room': room})
+
+@socketio.on('subscribe_entity', namespace='/ws')
+def handle_subscribe_entity(data):
+    """Subscribe to updates for a specific entity"""
+    entity_id = data.get('entity_id')
+    if entity_id:
+        join_room(f'entity_{entity_id}')
+        emit('subscribed', {'entity_id': entity_id})
+
+@socketio.on('query_database', namespace='/ws')
+def handle_query_database(data):
+    """Handle database queries via WebSocket"""
+    query = data.get('query', '')
+    if not query or not query.strip().upper().startswith('SELECT'):
+        emit('query_error', {'error': 'Only SELECT queries are allowed'})
+        return
+    
+    try:
+        results = ha_db.execute_query(query)
+        emit('query_result', {
+            'query': query,
+            'results': results,
+            'count': len(results)
+        })
+    except Exception as e:
+        emit('query_error', {'error': str(e)})
+
+# HTTP Routes
 @app.route('/', methods=['GET'])
 def root():
     """Root endpoint - serve web interface"""
@@ -195,6 +352,8 @@ def api_info():
         'version': '1.0.0',
         'database_connected': ha_db.db_path != "dummy",
         'database_path': ha_db.db_path,
+        'external_access_enabled': config.enable_external_access,
+        'websocket_enabled': config.enable_websocket,
         'endpoints': [
             '/ping',
             '/health', 
@@ -203,7 +362,10 @@ def api_info():
             '/entities',
             '/states',
             '/events',
-            '/query'
+            '/query',
+            '/external/status',
+            '/external/query',
+            '/ws'  # WebSocket endpoint
         ]
     })
 
@@ -217,14 +379,107 @@ def status():
         'timestamp': datetime.now().isoformat(),
         'database_connected': ha_db.db_path != "dummy",
         'database_path': ha_db.db_path,
+        'external_access_enabled': config.enable_external_access,
+        'websocket_enabled': config.enable_websocket,
         'access_methods': {
             'web_interface': '/',
             'api_info': '/api',
             'health_check': '/ping',
-            'database_query': '/query'
+            'database_query': '/query',
+            'external_api': '/external/status',
+            'websocket': '/ws'
         }
     })
 
+# External API endpoints (with authentication)
+@app.route('/external/status', methods=['GET'])
+@require_auth
+@rate_limit(max_requests=config.rate_limit)
+def external_status():
+    """External status endpoint with authentication"""
+    return jsonify({
+        'addon': 'Ferbos Mini Addon',
+        'version': '1.0.0',
+        'status': 'running',
+        'timestamp': datetime.now().isoformat(),
+        'database_connected': ha_db.db_path != "dummy",
+        'database_path': ha_db.db_path,
+        'external_access': True,
+        'websocket_enabled': config.enable_websocket
+    })
+
+@app.route('/external/query', methods=['POST'])
+@require_auth
+@rate_limit(max_requests=config.rate_limit)
+def external_query():
+    """External query endpoint with authentication"""
+    try:
+        data = request.get_json()
+        if not data or 'query' not in data:
+            return jsonify({'error': 'Query is required'}), 400
+        
+        query = data['query']
+        params = data.get('params', [])
+        
+        if not query.strip().upper().startswith('SELECT'):
+            return jsonify({'error': 'Only SELECT queries are allowed'}), 400
+        
+        results = ha_db.execute_query(query, tuple(params))
+        
+        return jsonify({
+            'query': query,
+            'params': params,
+            'results': results,
+            'count': len(results),
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/external/entities', methods=['GET'])
+@require_auth
+@rate_limit(max_requests=config.rate_limit)
+def external_entities():
+    """External entities endpoint with authentication"""
+    try:
+        query = "SELECT DISTINCT entity_id FROM states ORDER BY entity_id"
+        results = ha_db.execute_query(query)
+        entities = [row['entity_id'] for row in results]
+        
+        return jsonify({
+            'entities': entities,
+            'count': len(entities),
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/external/states', methods=['GET'])
+@require_auth
+@rate_limit(max_requests=config.rate_limit)
+def external_states():
+    """External states endpoint with authentication"""
+    try:
+        limit = request.args.get('limit', 100, type=int)
+        entity_id = request.args.get('entity_id')
+        
+        if entity_id:
+            query = "SELECT * FROM states WHERE entity_id = ? ORDER BY last_updated DESC LIMIT ?"
+            params = (entity_id, limit)
+        else:
+            query = "SELECT * FROM states ORDER BY last_updated DESC LIMIT ?"
+            params = (limit,)
+        
+        results = ha_db.execute_query(query, params)
+        return jsonify({
+            'states': results,
+            'count': len(results),
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Standard endpoints (no authentication required for internal use)
 @app.route('/ping', methods=['GET'])
 def ping():
     """Simple ping endpoint"""
@@ -242,14 +497,12 @@ def debug_info():
     try:
         import glob
         
-        # List all .db files in /config
         db_files = []
         try:
             db_files = glob.glob('/config/*.db')
         except Exception as e:
             logger.error(f"Error listing db files: {e}")
         
-        # Get config directory contents safely
         config_contents = []
         try:
             if os.path.exists('/config'):
@@ -263,10 +516,13 @@ def debug_info():
             'config_directory_contents': config_contents,
             'db_files_in_config': db_files,
             'working_directory': os.getcwd(),
+            'external_access_enabled': config.enable_external_access,
+            'websocket_enabled': config.enable_websocket,
             'environment_variables': {
                 'DATABASE_PATH': os.getenv('DATABASE_PATH'),
                 'HOME': os.getenv('HOME'),
-                'USER': os.getenv('USER')
+                'USER': os.getenv('USER'),
+                'API_KEY': '***' if config.api_key else None
             }
         })
     except Exception as e:
@@ -280,7 +536,6 @@ def debug_info():
 def health_check():
     """Health check endpoint"""
     try:
-        # Test database connection
         db_status = "unknown"
         try:
             ha_db.get_tables()
@@ -293,7 +548,9 @@ def health_check():
             'timestamp': datetime.now().isoformat(),
             'database_path': ha_db.db_path,
             'database_status': db_status,
-            'addon_version': '1.0.0'
+            'addon_version': '1.0.0',
+            'external_access_enabled': config.enable_external_access,
+            'websocket_enabled': config.enable_websocket
         })
     except Exception as e:
         logger.error(f"Health check error: {e}")
@@ -338,7 +595,6 @@ def execute_query():
         query = data['query']
         params = data.get('params', [])
         
-        # Basic security check - only allow SELECT queries
         if not query.strip().upper().startswith('SELECT'):
             return jsonify({'error': 'Only SELECT queries are allowed'}), 400
         
@@ -361,7 +617,6 @@ def execute_query_get():
         if not query:
             return jsonify({'error': 'Query parameter "q" is required'}), 400
         
-        # Basic security check - only allow SELECT queries
         if not query.strip().upper().startswith('SELECT'):
             return jsonify({'error': 'Only SELECT queries are allowed'}), 400
         
@@ -442,14 +697,32 @@ def not_found(error):
 def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
+# Background task for monitoring database changes
+def monitor_database():
+    """Background task to monitor database changes"""
+    while True:
+        try:
+            ha_db.check_for_changes()
+            eventlet.sleep(5)  # Check every 5 seconds
+        except Exception as e:
+            logger.error(f"Error in database monitoring: {e}")
+            eventlet.sleep(10)
+
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 8080))
-    logger.info(f"Starting Home Assistant Database Query Addon on port {port}")
+    logger.info(f"Starting Home Assistant Database Query Addon on port {config.port}")
     logger.info(f"Database path: {db_path}")
+    logger.info(f"External access enabled: {config.enable_external_access}")
+    logger.info(f"WebSocket enabled: {config.enable_websocket}")
     
-    # Run with Flask's built-in server for development
-    app.run(
+    if config.enable_websocket:
+        # Start background task for database monitoring
+        eventlet.spawn(monitor_database)
+    
+    # Run with SocketIO for WebSocket support
+    socketio.run(
+        app,
         host="0.0.0.0",
-        port=port,
-        debug=False
+        port=config.port,
+        debug=False,
+        use_reloader=False
     )
