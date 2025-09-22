@@ -540,6 +540,244 @@
       ]
     },
     {
+      "name": "🌉 WebSocket Bridge",
+      "description": "WebSocket bridge endpoint for HTTPS access via external bridge API",
+      "item": [
+        {
+          "name": "Bridge - Addon Status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ws_url\": \"wss://your-bridge-domain.com/api/websocket\",\n  \"token\": \"{{api_key}}\",\n  \"method\": \"ferbos/status\",\n  \"args\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/ws_bridge",
+              "host": ["{{base_url}}"],
+              "path": ["ws_bridge"]
+            },
+            "description": "Get addon status via WebSocket bridge"
+          },
+          "response": []
+        },
+        {
+          "name": "Bridge - Addon Info",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ws_url\": \"wss://your-bridge-domain.com/api/websocket\",\n  \"token\": \"{{api_key}}\",\n  \"method\": \"ferbos/info\",\n  \"args\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/ws_bridge",
+              "host": ["{{base_url}}"],
+              "path": ["ws_bridge"]
+            },
+            "description": "Get addon info and available methods via bridge"
+          },
+          "response": []
+        },
+        {
+          "name": "Bridge - Get Tables",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ws_url\": \"wss://your-bridge-domain.com/api/websocket\",\n  \"token\": \"{{api_key}}\",\n  \"method\": \"ferbos/tables\",\n  \"args\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/ws_bridge",
+              "host": ["{{base_url}}"],
+              "path": ["ws_bridge"]
+            },
+            "description": "Get database tables via bridge"
+          },
+          "response": []
+        },
+        {
+          "name": "Bridge - Custom Query",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ws_url\": \"wss://your-bridge-domain.com/api/websocket\",\n  \"token\": \"{{api_key}}\",\n  \"method\": \"ferbos/query\",\n  \"args\": {\n    \"query\": \"SELECT * FROM statistics WHERE metadata_id = 375\",\n    \"params\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/ws_bridge",
+              "host": ["{{base_url}}"],
+              "path": ["ws_bridge"]
+            },
+            "description": "Execute custom SQL query via bridge"
+          },
+          "response": []
+        },
+        {
+          "name": "Bridge - Get States",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ws_url\": \"wss://your-bridge-domain.com/api/websocket\",\n  \"token\": \"{{api_key}}\",\n  \"method\": \"ferbos/states\",\n  \"args\": {\n    \"limit\": 10,\n    \"entity_id\": \"sensor.temperature\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/ws_bridge",
+              "host": ["{{base_url}}"],
+              "path": ["ws_bridge"]
+            },
+            "description": "Get states with filtering via bridge"
+          },
+          "response": []
+        },
+        {
+          "name": "Bridge - Get Entities",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ws_url\": \"wss://your-bridge-domain.com/api/websocket\",\n  \"token\": \"{{api_key}}\",\n  \"method\": \"ferbos/entities\",\n  \"args\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/ws_bridge",
+              "host": ["{{base_url}}"],
+              "path": ["ws_bridge"]
+            },
+            "description": "Get entities list via bridge"
+          },
+          "response": []
+        },
+        {
+          "name": "Bridge - Get Table Schema",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ws_url\": \"wss://your-bridge-domain.com/api/websocket\",\n  \"token\": \"{{api_key}}\",\n  \"method\": \"ferbos/schema\",\n  \"args\": {\n    \"table_name\": \"states\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/ws_bridge",
+              "host": ["{{base_url}}"],
+              "path": ["ws_bridge"]
+            },
+            "description": "Get table schema via bridge"
+          },
+          "response": []
+        },
+        {
+          "name": "Bridge - WebSocket Info",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ws_url\": \"wss://your-bridge-domain.com/api/websocket\",\n  \"token\": \"{{api_key}}\",\n  \"method\": \"ferbos/ws/connect\",\n  \"args\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/ws_bridge",
+              "host": ["{{base_url}}"],
+              "path": ["ws_bridge"]
+            },
+            "description": "Get WebSocket connection info via bridge"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "📊 Advanced Queries",
       "description": "Advanced SQL queries for testing database functionality",
       "item": [

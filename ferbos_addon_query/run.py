@@ -365,6 +365,7 @@ def api_info():
             '/query',
             '/external/status',
             '/external/query',
+            '/ws_bridge',  # WebSocket bridge endpoint
             '/ws'  # WebSocket endpoint
         ]
     })
@@ -390,6 +391,268 @@ def status():
             'websocket': '/ws'
         }
     })
+
+# WebSocket Bridge endpoint for HTTPS access
+@app.route('/ws_bridge', methods=['POST'])
+def ws_bridge():
+    """WebSocket bridge endpoint for external HTTPS access"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Invalid JSON payload'}), 400
+        
+        # Extract bridge parameters
+        method = data.get('method', '')
+        args = data.get('args', {})
+        token = data.get('token', '')
+        
+        # Validate required fields
+        if not method:
+            return jsonify({'error': 'Method is required'}), 400
+        
+        # Handle authentication if token provided
+        if token and config.api_key:
+            if token != config.api_key:
+                return jsonify({'error': 'Invalid token'}), 401
+        
+        # Route to appropriate addon method
+        result = route_bridge_method(method, args)
+        
+        if result.get('error'):
+            return jsonify(result), result.get('status_code', 400)
+        
+        return jsonify({
+            'success': True,
+            'method': method,
+            'result': result,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"WebSocket bridge error: {e}")
+        return jsonify({
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+def route_bridge_method(method: str, args: dict) -> dict:
+    """Route bridge method calls to appropriate addon functions"""
+    try:
+        # Method mapping for addon endpoints
+        method_map = {
+            # Status and info methods
+            'ferbos/status': lambda: get_addon_status(),
+            'ferbos/info': lambda: get_addon_info(),
+            'ferbos/health': lambda: get_health_status(),
+            'ferbos/ping': lambda: get_ping_status(),
+            
+            # Database methods
+            'ferbos/tables': lambda: get_database_tables(),
+            'ferbos/entities': lambda: get_entities_list(),
+            'ferbos/states': lambda: get_states_data(args),
+            'ferbos/events': lambda: get_events_data(args),
+            
+            # Query methods
+            'ferbos/query': lambda: execute_bridge_query(args),
+            'ferbos/schema': lambda: get_table_schema_bridge(args),
+            
+            # WebSocket methods
+            'ferbos/ws/connect': lambda: get_websocket_info(),
+            'ferbos/ws/status': lambda: get_websocket_status(),
+        }
+        
+        if method not in method_map:
+            return {
+                'error': f'Unknown method: {method}',
+                'available_methods': list(method_map.keys()),
+                'status_code': 404
+            }
+        
+        return method_map[method]()
+        
+    except Exception as e:
+        logger.error(f"Method routing error: {e}")
+        return {'error': str(e), 'status_code': 500}
+
+# Bridge helper functions
+def get_addon_status():
+    """Get addon status for bridge"""
+    return {
+        'addon': 'Ferbos Mini Addon',
+        'version': '1.0.0',
+        'status': 'running',
+        'database_connected': ha_db.db_path != "dummy",
+        'external_access_enabled': config.enable_external_access,
+        'websocket_enabled': config.enable_websocket
+    }
+
+def get_addon_info():
+    """Get addon info for bridge"""
+    return {
+        'message': 'Ferbos Mini Addon is running!',
+        'version': '1.0.0',
+        'database_connected': ha_db.db_path != "dummy",
+        'database_path': ha_db.db_path,
+        'external_access_enabled': config.enable_external_access,
+        'websocket_enabled': config.enable_websocket,
+        'available_methods': [
+            'ferbos/status', 'ferbos/info', 'ferbos/health', 'ferbos/ping',
+            'ferbos/tables', 'ferbos/entities', 'ferbos/states', 'ferbos/events',
+            'ferbos/query', 'ferbos/schema', 'ferbos/ws/connect', 'ferbos/ws/status'
+        ]
+    }
+
+def get_health_status():
+    """Get health status for bridge"""
+    try:
+        db_status = "unknown"
+        try:
+            ha_db.get_tables()
+            db_status = "connected"
+        except Exception as e:
+            db_status = f"error: {str(e)}"
+        
+        return {
+            'status': 'healthy',
+            'database_path': ha_db.db_path,
+            'database_status': db_status,
+            'addon_version': '1.0.0',
+            'external_access_enabled': config.enable_external_access,
+            'websocket_enabled': config.enable_websocket
+        }
+    except Exception as e:
+        return {'error': str(e), 'status_code': 500}
+
+def get_ping_status():
+    """Get ping status for bridge"""
+    return {
+        'status': 'pong',
+        'addon': 'Ferbos Mini Addon',
+        'version': '1.0.0',
+        'database_connected': ha_db.db_path != "dummy"
+    }
+
+def get_database_tables():
+    """Get database tables for bridge"""
+    try:
+        tables = ha_db.get_tables()
+        return {
+            'tables': tables,
+            'count': len(tables)
+        }
+    except Exception as e:
+        return {'error': str(e), 'status_code': 500}
+
+def get_entities_list():
+    """Get entities list for bridge"""
+    try:
+        query = "SELECT DISTINCT entity_id FROM states ORDER BY entity_id"
+        results = ha_db.execute_query(query)
+        entities = [row['entity_id'] for row in results]
+        return {
+            'entities': entities,
+            'count': len(entities)
+        }
+    except Exception as e:
+        return {'error': str(e), 'status_code': 500}
+
+def get_states_data(args):
+    """Get states data for bridge"""
+    try:
+        limit = args.get('limit', 100)
+        entity_id = args.get('entity_id')
+        
+        if entity_id:
+            query = "SELECT * FROM states WHERE entity_id = ? ORDER BY last_updated DESC LIMIT ?"
+            params = (entity_id, limit)
+        else:
+            query = "SELECT * FROM states ORDER BY last_updated DESC LIMIT ?"
+            params = (limit,)
+        
+        results = ha_db.execute_query(query, params)
+        return {
+            'states': results,
+            'count': len(results)
+        }
+    except Exception as e:
+        return {'error': str(e), 'status_code': 500}
+
+def get_events_data(args):
+    """Get events data for bridge"""
+    try:
+        limit = args.get('limit', 100)
+        event_type = args.get('event_type')
+        
+        if event_type:
+            query = "SELECT * FROM events WHERE event_type = ? ORDER BY time_fired DESC LIMIT ?"
+            params = (event_type, limit)
+        else:
+            query = "SELECT * FROM events ORDER BY time_fired DESC LIMIT ?"
+            params = (limit,)
+        
+        results = ha_db.execute_query(query, params)
+        return {
+            'events': results,
+            'count': len(results)
+        }
+    except Exception as e:
+        return {'error': str(e), 'status_code': 500}
+
+def execute_bridge_query(args):
+    """Execute query for bridge"""
+    try:
+        query = args.get('query', '')
+        params = args.get('params', [])
+        
+        if not query:
+            return {'error': 'Query is required', 'status_code': 400}
+        
+        if not query.strip().upper().startswith('SELECT'):
+            return {'error': 'Only SELECT queries are allowed', 'status_code': 400}
+        
+        results = ha_db.execute_query(query, tuple(params))
+        return {
+            'query': query,
+            'params': params,
+            'results': results,
+            'count': len(results)
+        }
+    except Exception as e:
+        return {'error': str(e), 'status_code': 500}
+
+def get_table_schema_bridge(args):
+    """Get table schema for bridge"""
+    try:
+        table_name = args.get('table_name', '')
+        if not table_name:
+            return {'error': 'table_name is required', 'status_code': 400}
+        
+        schema = ha_db.get_table_schema(table_name)
+        return {
+            'table': table_name,
+            'schema': schema
+        }
+    except Exception as e:
+        return {'error': str(e), 'status_code': 500}
+
+def get_websocket_info():
+    """Get WebSocket info for bridge"""
+    return {
+        'websocket_enabled': config.enable_websocket,
+        'websocket_url': f'ws://{request.host}/ws',
+        'events': [
+            'connect', 'disconnect', 'query_database', 'subscribe_entity',
+            'database_updated', 'query_result', 'query_error'
+        ]
+    }
+
+def get_websocket_status():
+    """Get WebSocket status for bridge"""
+    return {
+        'websocket_enabled': config.enable_websocket,
+        'connected_clients': len(socketio.server.manager.rooms.get('/', {}).get('', set())),
+        'status': 'active' if config.enable_websocket else 'disabled'
+    }
 
 # External API endpoints (with authentication)
 @app.route('/external/status', methods=['GET'])
