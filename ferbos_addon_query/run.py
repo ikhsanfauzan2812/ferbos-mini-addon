@@ -857,6 +857,8 @@ def debug_info():
             'working_directory': os.getcwd(),
             'external_access_enabled': config.enable_external_access,
             'websocket_enabled': config.enable_websocket,
+            'allow_all_queries': config.allow_all_queries,
+            'allowed_tables': config.allowed_tables,
             'environment_variables': {
                 'DATABASE_PATH': os.getenv('DATABASE_PATH'),
                 'HOME': os.getenv('HOME'),
