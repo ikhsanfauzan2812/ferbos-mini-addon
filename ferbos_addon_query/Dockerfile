@@ -19,9 +19,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY run.py .
 COPY templates/ templates/
 
-# Create non-root user for security
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
-USER appuser
+# Run as root (UID 0) to allow writing to /config when needed
+USER 0
 
 # Expose port
 EXPOSE 8080
