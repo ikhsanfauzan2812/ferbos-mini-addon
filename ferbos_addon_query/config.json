@@ -10,6 +10,7 @@
   "boot": "auto",
   "map": ["config:rw"],
   "ingress": true,
+  "homeassistant_api": true,
   "options": {
     "port": 8080,
     "database_path": "/config/home-assistant_v2.db",
