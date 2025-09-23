@@ -3,9 +3,11 @@
   "name": "Ferbos Mini",
   "version": "0.1.0",
   "documentation": "https://github.com/ikhsanfauzan2812/ferbos-mini-addon",
+  "config_flow": true,
   "requirements": [],
   "dependencies": ["websocket_api"],
   "codeowners": ["@ikhsanfauzan2812"]
 }
+
 
 

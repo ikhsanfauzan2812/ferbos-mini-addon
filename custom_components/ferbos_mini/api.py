@@ -18,3 +18,4 @@ class FerbosAddonClient:
             return await resp.json(content_type=None)
 
 
+
