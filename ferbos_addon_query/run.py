@@ -20,6 +20,8 @@ from flask import Flask, request, jsonify, render_template
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
 import eventlet
+import requests
+import pathlib
 
 # Configure logging
 logging.basicConfig(
@@ -872,6 +874,118 @@ def debug_info():
             'error': str(e),
             'timestamp': datetime.now().isoformat()
         }), 500
+
+@app.route('/ha_config/insert', methods=['POST'])
+def ha_config_insert():
+    """Safely insert a YAML snippet as a new file under /config using includes.
+
+    Body JSON:
+    {
+      "relative_dir": "packages/ferbos",   # required, relative under /config
+      "filename": "my_feature.yaml",       # required, file name to write
+      "yaml": "automation:\n  - alias: Test...",  # required
+      "validate": true,                     # optional, default true
+      "reload_core": true,                  # optional, default true
+      "overwrite": false                    # optional, default false
+    }
+    """
+    try:
+        data = request.get_json(force=True, silent=False)
+        if not data:
+            return jsonify({'error': 'JSON body required'}), 400
+
+        relative_dir = str(data.get('relative_dir', '')).strip()
+        filename = str(data.get('filename', '')).strip()
+        yaml_text = data.get('yaml', None)
+        validate = bool(data.get('validate', True))
+        reload_core = bool(data.get('reload_core', True))
+        overwrite = bool(data.get('overwrite', False))
+
+        if not relative_dir or not filename or yaml_text is None:
+            return jsonify({'error': 'relative_dir, filename and yaml are required'}), 400
+
+        # prevent path traversal and force under /config
+        base_config = pathlib.Path('/config').resolve()
+        target_dir = (base_config / pathlib.Path(relative_dir)).resolve()
+        if not str(target_dir).startswith(str(base_config)):
+            return jsonify({'error': 'relative_dir must be under /config'}), 400
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_path = (target_dir / filename).resolve()
+        if not str(target_path).startswith(str(base_config)):
+            return jsonify({'error': 'filename path escapes /config'}), 400
+
+        if target_path.exists() and not overwrite:
+            return jsonify({'error': 'file already exists', 'path': str(target_path)}), 409
+
+        # Write temp then move
+        temp_path = target_path.with_suffix(target_path.suffix + '.tmp')
+        temp_path.write_text(yaml_text, encoding='utf-8')
+        temp_path.replace(target_path)
+
+        result = {
+            'ok': True,
+            'path': str(target_path),
+            'validated': False,
+            'reloaded': False
+        }
+
+        # Validate via Supervisor if requested and available
+        if validate:
+            sup_token = os.getenv('SUPERVISOR_TOKEN')
+            try:
+                if sup_token:
+                    resp = requests.post(
+                        'http://supervisor/core/api/config/core/check',
+                        headers={'Authorization': f'Bearer {sup_token}'},
+                        timeout=30
+                    )
+                    if resp.status_code != 200:
+                        # revert by removing the new file
+                        try:
+                            target_path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        return jsonify({'error': 'validation request failed', 'status': resp.status_code, 'body': resp.text}), 400
+                    payload = resp.json()
+                    result['validated'] = True
+                    if not payload.get('result') == 'valid':
+                        # revert on invalid
+                        try:
+                            target_path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        return jsonify({'error': 'configuration invalid', 'details': payload}), 400
+                else:
+                    # No supervisor token; cannot validate
+                    result['validated'] = False
+            except Exception as e:
+                try:
+                    target_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                return jsonify({'error': 'validation error', 'details': str(e)}), 400
+
+        # Reload core config if requested and validation passed or skipped
+        if reload_core:
+            sup_token = os.getenv('SUPERVISOR_TOKEN')
+            if sup_token:
+                try:
+                    resp = requests.post(
+                        'http://supervisor/core/api/services/homeassistant/reload_core_config',
+                        headers={'Authorization': f'Bearer {sup_token}'},
+                        timeout=30
+                    )
+                    result['reloaded'] = resp.status_code == 200
+                except Exception:
+                    result['reloaded'] = False
+            else:
+                result['reloaded'] = False
+
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"ha_config_insert error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/health', methods=['GET'])
 def health_check():
