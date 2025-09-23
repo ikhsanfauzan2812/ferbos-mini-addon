@@ -936,11 +936,22 @@ def ha_config_insert():
             sup_token = os.getenv('SUPERVISOR_TOKEN')
             try:
                 if sup_token:
+                    headers = {
+                        'Authorization': f'Bearer {sup_token}',
+                        'X-Supervisor-Token': sup_token,
+                    }
                     resp = requests.post(
                         'http://supervisor/core/api/config/core/check',
-                        headers={'Authorization': f'Bearer {sup_token}'},
+                        headers=headers,
                         timeout=30
                     )
+                    if resp.status_code == 401:
+                        # retry once without custom header set (defensive)
+                        resp = requests.post(
+                            'http://supervisor/core/api/config/core/check',
+                            headers={'Authorization': f'Bearer {sup_token}'},
+                            timeout=30
+                        )
                     if resp.status_code != 200:
                         # revert by removing the new file
                         try:
@@ -972,9 +983,13 @@ def ha_config_insert():
             sup_token = os.getenv('SUPERVISOR_TOKEN')
             if sup_token:
                 try:
+                    headers = {
+                        'Authorization': f'Bearer {sup_token}',
+                        'X-Supervisor-Token': sup_token,
+                    }
                     resp = requests.post(
                         'http://supervisor/core/api/services/homeassistant/reload_core_config',
-                        headers={'Authorization': f'Bearer {sup_token}'},
+                        headers=headers,
                         timeout=30
                     )
                     result['reloaded'] = resp.status_code == 200
@@ -1050,11 +1065,21 @@ def ha_config_append_lines():
             sup_token = os.getenv('SUPERVISOR_TOKEN')
             try:
                 if sup_token:
+                    headers = {
+                        'Authorization': f'Bearer {sup_token}',
+                        'X-Supervisor-Token': sup_token,
+                    }
                     resp = requests.post(
                         'http://supervisor/core/api/config/core/check',
-                        headers={'Authorization': f'Bearer {sup_token}'},
+                        headers=headers,
                         timeout=30
                     )
+                    if resp.status_code == 401:
+                        resp = requests.post(
+                            'http://supervisor/core/api/config/core/check',
+                            headers={'Authorization': f'Bearer {sup_token}'},
+                            timeout=30
+                        )
                     if resp.status_code != 200:
                         # restore backup if we have it
                         if backup_path:
@@ -1086,9 +1111,13 @@ def ha_config_append_lines():
             sup_token = os.getenv('SUPERVISOR_TOKEN')
             if sup_token:
                 try:
+                    headers = {
+                        'Authorization': f'Bearer {sup_token}',
+                        'X-Supervisor-Token': sup_token,
+                    }
                     resp = requests.post(
                         'http://supervisor/core/api/services/homeassistant/reload_core_config',
-                        headers={'Authorization': f'Bearer {sup_token}'},
+                        headers=headers,
                         timeout=30
                     )
                     result['reloaded'] = resp.status_code == 200
