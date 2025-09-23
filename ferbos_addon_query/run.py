@@ -22,6 +22,7 @@ from flask_cors import CORS
 import eventlet
 import requests
 import pathlib
+import shutil
 
 # Configure logging
 logging.basicConfig(
@@ -985,6 +986,120 @@ def ha_config_insert():
         return jsonify(result)
     except Exception as e:
         logger.error(f"ha_config_insert error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/ha_config/append_lines', methods=['POST'])
+def ha_config_append_lines():
+    """Append lines to /config/configuration.yaml with backup, validation and optional reload.
+
+    Body JSON:
+    {
+      "lines": ["homeassistant:", "  packages: !include_dir_merge_named packages"],
+      "validate": true,
+      "reload_core": true,
+      "backup": true
+    }
+    """
+    try:
+        data = request.get_json(force=True, silent=False)
+        if not data:
+            return jsonify({'error': 'JSON body required'}), 400
+
+        lines = data.get('lines', [])
+        validate = bool(data.get('validate', True))
+        reload_core = bool(data.get('reload_core', True))
+        do_backup = bool(data.get('backup', True))
+
+        if not isinstance(lines, list) or not lines:
+            return jsonify({'error': 'lines must be a non-empty array of strings'}), 400
+
+        config_path = pathlib.Path('/config/configuration.yaml').resolve()
+        if not config_path.exists():
+            return jsonify({'error': 'configuration.yaml not found'}), 404
+
+        backup_path = None
+        if do_backup:
+            backup_dir = pathlib.Path('/config/.backup')
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+            backup_path = backup_dir / f'configuration.yaml.{timestamp}'
+            try:
+                shutil.copy2(str(config_path), str(backup_path))
+            except Exception as e:
+                return jsonify({'error': f'backup failed: {e}'}), 500
+
+        try:
+            with open(config_path, 'a', encoding='utf-8') as f:
+                if not str(lines[-1]).endswith('\n'):
+                    # ensure trailing newline on file before appending
+                    f.write('\n')
+                f.write('\n'.join(str(l) for l in lines))
+                f.write('\n')
+        except Exception as e:
+            return jsonify({'error': f'append failed: {e}'}), 500
+
+        result = {
+            'ok': True,
+            'path': str(config_path),
+            'backup_path': str(backup_path) if backup_path else None,
+            'validated': False,
+            'reloaded': False
+        }
+
+        if validate:
+            sup_token = os.getenv('SUPERVISOR_TOKEN')
+            try:
+                if sup_token:
+                    resp = requests.post(
+                        'http://supervisor/core/api/config/core/check',
+                        headers={'Authorization': f'Bearer {sup_token}'},
+                        timeout=30
+                    )
+                    if resp.status_code != 200:
+                        # restore backup if we have it
+                        if backup_path:
+                            try:
+                                shutil.copy2(str(backup_path), str(config_path))
+                            except Exception:
+                                pass
+                        return jsonify({'error': 'validation request failed', 'status': resp.status_code, 'body': resp.text}), 400
+                    payload = resp.json()
+                    result['validated'] = True
+                    if not payload.get('result') == 'valid':
+                        if backup_path:
+                            try:
+                                shutil.copy2(str(backup_path), str(config_path))
+                            except Exception:
+                                pass
+                        return jsonify({'error': 'configuration invalid', 'details': payload}), 400
+                else:
+                    result['validated'] = False
+            except Exception as e:
+                if backup_path:
+                    try:
+                        shutil.copy2(str(backup_path), str(config_path))
+                    except Exception:
+                        pass
+                return jsonify({'error': 'validation error', 'details': str(e)}), 400
+
+        if reload_core:
+            sup_token = os.getenv('SUPERVISOR_TOKEN')
+            if sup_token:
+                try:
+                    resp = requests.post(
+                        'http://supervisor/core/api/services/homeassistant/reload_core_config',
+                        headers={'Authorization': f'Bearer {sup_token}'},
+                        timeout=30
+                    )
+                    result['reloaded'] = resp.status_code == 200
+                except Exception:
+                    result['reloaded'] = False
+            else:
+                result['reloaded'] = False
+
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"ha_config_append_lines error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/health', methods=['GET'])

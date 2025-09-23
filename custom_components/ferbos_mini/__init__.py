@@ -18,18 +18,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     client = FerbosAddonClient(addon_base_url, api_key)
 
     # Accept both legacy (top-level query/params) and new (args={}) formats
-    @websocket_api.websocket_command(
-        vol.Schema(
-            {
-                vol.Required("type"): "ferbos/query",
-                vol.Required("id"): int,
-                vol.Optional("args"): dict,
-                vol.Optional("query"): cv.string,
-                vol.Optional("params"): list,
-            },
-            extra=vol.ALLOW_EXTRA,
-        )
-    )
+    @websocket_api.websocket_command({
+        "type": "ferbos/query",
+        "id": int,
+        vol.Optional("args"): dict,
+        vol.Optional("query"): cv.string,
+        vol.Optional("params"): list,
+    })
     @websocket_api.async_response
     async def ws_ferbos_query(hass, connection, msg):
         # Normalize payload
@@ -44,6 +39,38 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         connection.send_result(msg["id"], result)
 
     websocket_api.async_register_command(hass, ws_ferbos_query)
+
+    # WebSocket: ferbos/config/add → append lines to configuration.yaml via addon /ha_config/append_lines
+    @websocket_api.websocket_command({
+        "type": "ferbos/config/add",
+        "id": int,
+        vol.Required("args"): vol.Schema({
+            vol.Required("lines"): [cv.string],
+            vol.Optional("validate", default=True): bool,
+            vol.Optional("reload_core", default=True): bool,
+            vol.Optional("backup", default=True): bool,
+        }),
+    })
+    @websocket_api.async_response
+    async def ws_ferbos_config_add(hass, connection, msg):
+        args = msg.get("args", {})
+        payload = {
+            "lines": args.get("lines", []),
+            "validate": args.get("validate", True),
+            "reload_core": args.get("reload_core", True),
+            "backup": args.get("backup", True),
+        }
+        # POST to addon /ha_config/append_lines
+        async with aiohttp.ClientSession() as session:
+            url = f"{addon_base_url.rstrip('/')}/ha_config/append_lines"
+            async with session.post(url, json=payload) as resp:
+                try:
+                    data = await resp.json(content_type=None)
+                except Exception:
+                    data = {"status": resp.status, "text": await resp.text()}
+        connection.send_result(msg["id"], data)
+
+    websocket_api.async_register_command(hass, ws_ferbos_config_add)
     return True
 
 
