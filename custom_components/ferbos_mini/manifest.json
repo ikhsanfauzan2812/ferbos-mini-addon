@@ -1,7 +1,7 @@
 {
   "domain": "ferbos_mini",
   "name": "Ferbos Mini",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "documentation": "https://github.com/ikhsanfauzan2812/ferbos-mini-addon",
   "config_flow": true,
   "requirements": ["aiohttp>=3.8.0"],
