@@ -516,6 +516,8 @@ def route_bridge_method(method: str, args: dict) -> dict:
             # WebSocket methods
             'ferbos/ws/connect': lambda: get_websocket_info(),
             'ferbos/ws/status': lambda: get_websocket_status(),
+            # UI helper methods
+            'ferbos/ui/add': lambda: add_ui_sidebar(args),
         }
         
         if method not in method_map:
@@ -555,7 +557,8 @@ def get_addon_info():
         'available_methods': [
             'ferbos/status', 'ferbos/info', 'ferbos/health', 'ferbos/ping',
             'ferbos/tables', 'ferbos/entities', 'ferbos/states', 'ferbos/events',
-            'ferbos/query', 'ferbos/schema', 'ferbos/ws/connect', 'ferbos/ws/status'
+            'ferbos/query', 'ferbos/schema', 'ferbos/ws/connect', 'ferbos/ws/status',
+            'ferbos/ui/add'
         ]
     }
 
@@ -730,6 +733,108 @@ def get_websocket_status():
         'connected_clients': len(socketio.server.manager.rooms.get('/', {}).get('', set())),
         'status': 'active' if config.enable_websocket else 'disabled'
     }
+
+def add_ui_sidebar(args: dict) -> dict:
+    """Create or overwrite /config/www/sidebar-config.yaml with provided template.
+
+    Args supports either:
+      - template: full YAML string
+      - lines: array of strings to be joined by newlines
+      - backup: bool (default True)
+      - overwrite: bool (default True)
+      - path: optional relative path under /config (default www/sidebar-config.yaml)
+    """
+    try:
+        rel_path = str(args.get('path', 'www/sidebar-config.yaml')).lstrip('/')
+        base_config = pathlib.Path('/config').resolve()
+        target_path = (base_config / rel_path).resolve()
+        if not str(target_path).startswith(str(base_config)):
+            return {'error': 'path escapes /config', 'status_code': 400}
+
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        overwrite = bool(args.get('overwrite', True))
+        do_backup = bool(args.get('backup', True))
+
+        if target_path.exists() and not overwrite:
+            return {'error': 'file already exists', 'path': str(target_path), 'status_code': 409}
+
+        template_text = args.get('template')
+        if not template_text:
+            lines = args.get('lines')
+            if isinstance(lines, list) and lines:
+                template_text = '\n'.join(str(l) for l in lines) + '\n'
+            else:
+                # Default template from Ferbos request
+                template_text = (
+                    "title: 'Ferbos IoT'\n"
+                    "default_path: /main-dashboard\n"
+                    "order:\n"
+                    "      - item: 'Main Dashboard'\n"
+                    "        order: 1\n"
+                    "      - item: 'energy'\n"
+                    "        order: 2\n"
+                    "      - item: 'browser mod'\n"
+                    "        order: 3\n"
+                    "      - item: 'overview'\n"
+                    "        hide: true\n"
+                    "      - item: 'Map'\n"
+                    "        hide: true\n"
+                    "      - item: 'Logbook'\n"
+                    "        hide: true\n"
+                    "      - item: 'History'\n"
+                    "        hide: true\n"
+                    "      - item: 'Browser Mod'\n"
+                    "        hide: true\n"
+                    "      - item: 'Media'\n"
+                    "        hide: true\n"
+                    "      - item: 'Default'\n"
+                    "        hide: true\n"
+                    "      - item: 'to-do lists'\n"
+                    "        hide: true\n"
+                    "        \n"
+                    "exceptions:\n"
+                    "  - user:\n"
+                    "    - 'ferbos_user'\n"
+                    "    - 'user'\n"
+                    "    extend_from: 'base'\n"
+                    "    order:\n"
+                    "      - item: 'Main Dashboard'\n"
+                    "        icon: 'mdi:monitor-dashboard'\n"
+                    "        order: 1\n"
+                    "      - item: 'energy'\n"
+                    "        order: 2\n"
+                    "        hide: true\n"
+                    "      - item: 'browser mod'\n"
+                    "        order: 3\n"
+                    "        hide: true\n"
+                )
+
+        backup_path = None
+        if do_backup and target_path.exists():
+            backup_dir = target_path.parent / '.backup'
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+            backup_path = backup_dir / f"{target_path.name}.{timestamp}"
+            try:
+                shutil.copy2(str(target_path), str(backup_path))
+            except Exception as e:
+                return {'error': f'backup failed: {e}', 'status_code': 500}
+
+        # Write atomically: temp then move
+        temp_path = target_path.with_suffix(target_path.suffix + '.tmp')
+        temp_path.write_text(template_text, encoding='utf-8')
+        temp_path.replace(target_path)
+
+        return {
+            'ok': True,
+            'path': str(target_path),
+            'backup_path': str(backup_path) if backup_path else None,
+            'bytes_written': len(template_text.encode('utf-8')),
+        }
+    except Exception as e:
+        logger.error(f"add_ui_sidebar error: {e}")
+        return {'error': str(e), 'status_code': 500}
 
 # External API endpoints (with authentication)
 @app.route('/external/status', methods=['GET'])
