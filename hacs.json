@@ -1,0 +1,9 @@
+{
+  "name": "Ferbos Mini",
+  "content_in_root": false,
+  "filename": "ferbos_mini",
+  "country": ["ID", "US", "GB", "DE", "FR", "NL", "AU", "CA"],
+  "homeassistant": "2023.1.0",
+  "render_readme": true,
+  "iot_class": "local_polling"
+}

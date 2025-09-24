@@ -4,9 +4,10 @@
   "version": "0.1.0",
   "documentation": "https://github.com/ikhsanfauzan2812/ferbos-mini-addon",
   "config_flow": true,
-  "requirements": [],
+  "requirements": ["aiohttp>=3.8.0"],
   "dependencies": ["websocket_api"],
-  "codeowners": ["@ikhsanfauzan2812"]
+  "codeowners": ["@ikhsanfauzan2812"],
+  "iot_class": "local_polling"
 }
 
 
