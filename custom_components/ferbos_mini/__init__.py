@@ -79,6 +79,68 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         connection.send_result(msg["id"], data)
 
     websocket_api.async_register_command(hass, ws_ferbos_config_add)
+
+    # WebSocket: ferbos/ui/add → proxy to addon ws_bridge with method ferbos/ui/add
+    @websocket_api.websocket_command({
+        "type": "ferbos/ui/add",
+        "id": int,
+        vol.Optional("args"): dict,
+        vol.Optional("template"): cv.string,
+        vol.Optional("lines"): list,
+        vol.Optional("path"): cv.string,
+        vol.Optional("backup"): bool,
+        vol.Optional("overwrite"): bool,
+    })
+    @websocket_api.async_response
+    async def ws_ferbos_ui_add(hass, connection, msg):
+        args = msg.get("args") or {}
+        # Accept flattened fields for convenience
+        for key in ("template", "lines", "path", "backup", "overwrite"):
+            if key in msg and key not in args:
+                args[key] = msg[key]
+        payload = {"method": "ferbos/ui/add", "args": args}
+        if api_key:
+            payload["token"] = api_key
+        async with aiohttp.ClientSession() as session:
+            url = f"{addon_base_url.rstrip('/')}/ws_bridge"
+            async with session.post(url, json=payload) as resp:
+                try:
+                    data = await resp.json(content_type=None)
+                except Exception:
+                    data = {"status": resp.status, "text": await resp.text()}
+        connection.send_result(msg["id"], data)
+
+    websocket_api.async_register_command(hass, ws_ferbos_ui_add)
+
+    @websocket_api.websocket_command({
+        "type": "ferbos/ui/add",
+        "id": int,
+        vol.Optional("args"): dict,
+        vol.Optional("template"): cv.string,
+        vol.Optional("lines"): list,
+        vol.Optional("path"): cv.string,
+        vol.Optional("backup"): bool,
+        vol.Optional("overwrite"): bool,
+    })
+    @websocket_api.async_response
+    async def ws_ferbos_ui_add(hass, connection, msg):
+        args = msg.get("args") or {}
+        for key in ("template", "lines", "path", "backup", "overwrite"):
+            if key in msg and key not in args:
+                args[key] = msg[key]
+        payload = {"method": "ferbos/ui/add", "args": args}
+        if api_key:
+            payload["token"] = api_key
+        async with aiohttp.ClientSession() as session:
+            url = f"{addon_base_url.rstrip('/')}/ws_bridge"
+            async with session.post(url, json=payload) as resp:
+                try:
+                    data = await resp.json(content_type=None)
+                except Exception:
+                    data = {"status": resp.status, "text": await resp.text()}
+        connection.send_result(msg["id"], data)
+
+    websocket_api.async_register_command(hass, ws_ferbos_ui_add)
     return True
 
 
