@@ -5,9 +5,81 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers import config_validation as cv
 import voluptuous as vol
 import aiohttp
+import aiosqlite
+import asyncio
+from pathlib import Path
+from datetime import datetime
+import shutil
 
 from .const import DOMAIN, CONF_ADDON_BASE_URL, CONF_API_KEY, DEFAULT_ADDON_BASE_URL
 from .api import FerbosAddonClient
+
+
+async def _run_sqlite_query(hass: HomeAssistant, args: dict) -> dict:
+    query: str | None = (args or {}).get("query")
+    params = (args or {}).get("params") or []
+    if not query:
+        return {"success": False, "error": {"code": "invalid", "message": "Missing query"}}
+
+    db_path = Path(hass.config.path("home-assistant_v2.db"))
+    if not db_path.exists():
+        return {"success": False, "error": {"code": "not_found", "message": f"DB not found: {db_path}"}}
+
+    try:
+        async with aiosqlite.connect(db_path.as_posix()) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(query, params)
+            is_select = query.strip().lower().startswith("select")
+            if is_select:
+                rows = await cursor.fetchall()
+                await cursor.close()
+                result = [dict(r) for r in rows]
+                return {"success": True, "data": result}
+            else:
+                await db.commit()
+                rowcount = cursor.rowcount
+                lastrowid = cursor.lastrowid
+                await cursor.close()
+                return {"success": True, "data": {"rowcount": rowcount, "lastrowid": lastrowid}}
+    except Exception as exc:
+        return {"success": False, "error": {"code": "sqlite_error", "message": str(exc)}}
+
+
+async def _append_config_lines(hass: HomeAssistant, payload: dict) -> dict:
+    lines = payload.get("lines") or []
+    validate = payload.get("validate", True)
+    reload_core = payload.get("reload_core", True)
+    backup = payload.get("backup", True)
+
+    if not isinstance(lines, list):
+        return {"success": False, "error": {"code": "invalid", "message": "lines must be a list"}}
+
+    config_path = Path(hass.config.path("configuration.yaml"))
+    if not config_path.exists():
+        return {"success": False, "error": {"code": "not_found", "message": f"configuration.yaml not found at {config_path}"}}
+
+    try:
+        if backup:
+            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+            backup_path = config_path.with_suffix(f".backup.{ts}.yaml")
+            shutil.copy2(config_path.as_posix(), backup_path.as_posix())
+
+        content_to_append = "\n".join([str(l) for l in lines])
+        # Ensure separation by a newline
+        with open(config_path, "a", encoding="utf-8") as f:
+            if not content_to_append.endswith("\n"):
+                content_to_append += "\n"
+            f.write(content_to_append)
+
+        if validate:
+            await hass.services.async_call("homeassistant", "check_config", blocking=True)
+        if reload_core:
+            # Reload core configuration (area registry, customize, packages etc.)
+            await hass.services.async_call("homeassistant", "reload_core_config", blocking=True)
+
+        return {"success": True}
+    except Exception as exc:
+        return {"success": False, "error": {"code": "file_write_error", "message": str(exc)}}
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -35,8 +107,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 "query": msg.get("query"),
                 "params": msg.get("params") or [],
             }
-        async with aiohttp.ClientSession() as session:
-            result = await client.proxy_query(session, args)
+        result = await _run_sqlite_query(hass, args)
         connection.send_result(msg["id"], result)
 
     websocket_api.async_register_command(hass, ws_ferbos_query)
@@ -68,14 +139,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             "reload_core": args.get("reload_core", True),
             "backup": args.get("backup", True),
         }
-        # POST to addon /ha_config/append_lines
-        async with aiohttp.ClientSession() as session:
-            url = f"{addon_base_url.rstrip('/')}/ha_config/append_lines"
-            async with session.post(url, json=payload) as resp:
-                try:
-                    data = await resp.json(content_type=None)
-                except Exception:
-                    data = {"status": resp.status, "text": await resp.text()}
+        data = await _append_config_lines(hass, payload)
         connection.send_result(msg["id"], data)
 
     websocket_api.async_register_command(hass, ws_ferbos_config_add)
@@ -161,8 +225,7 @@ async def async_setup_entry(hass: HomeAssistant, entry) -> bool:
     @websocket_api.async_response
     async def ws_ferbos_query(hass, connection, msg):
         args = msg.get("args") or {"query": msg.get("query"), "params": msg.get("params") or []}
-        async with aiohttp.ClientSession() as session:
-            result = await client.proxy_query(session, args)
+        result = await _run_sqlite_query(hass, args)
         connection.send_result(msg["id"], result)
 
     websocket_api.async_register_command(hass, ws_ferbos_query)
@@ -192,13 +255,7 @@ async def async_setup_entry(hass: HomeAssistant, entry) -> bool:
             "reload_core": args.get("reload_core", True),
             "backup": args.get("backup", True),
         }
-        async with aiohttp.ClientSession() as session:
-            url = f"{addon_base_url.rstrip('/')}/ha_config/append_lines"
-            async with session.post(url, json=payload) as resp:
-                try:
-                    data = await resp.json(content_type=None)
-                except Exception:
-                    data = {"status": resp.status, "text": await resp.text()}
+        data = await _append_config_lines(hass, payload)
         connection.send_result(msg["id"], data)
 
     websocket_api.async_register_command(hass, ws_ferbos_config_add)
