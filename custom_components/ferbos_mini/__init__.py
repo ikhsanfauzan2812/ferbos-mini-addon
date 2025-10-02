@@ -82,6 +82,60 @@ async def _append_config_lines(hass: HomeAssistant, payload: dict) -> dict:
         return {"success": False, "error": {"code": "file_write_error", "message": str(exc)}}
 
 
+async def _handle_ui_file_operation(hass: HomeAssistant, args: dict) -> dict:
+    """Handle local file operations for ferbos/ui/add"""
+    file_path = args.get("path", "")
+    template = args.get("template", "")
+    lines = args.get("lines", [])
+    backup = args.get("backup", True)
+    overwrite = args.get("overwrite", False)
+
+    if not file_path:
+        return {"success": False, "error": {"code": "invalid", "message": "Missing path"}}
+
+    # Ensure path is relative and safe
+    if file_path.startswith("/"):
+        file_path = file_path[1:]
+    
+    # Prevent directory traversal
+    if ".." in file_path or file_path.startswith("../"):
+        return {"success": False, "error": {"code": "invalid", "message": "Invalid path"}}
+
+    target_path = Path(hass.config.path(file_path))
+    
+    try:
+        # Create parent directories if they don't exist
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Backup existing file if requested and file exists
+        if backup and target_path.exists():
+            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+            backup_path = target_path.with_suffix(f".backup.{ts}{target_path.suffix}")
+            shutil.copy2(target_path.as_posix(), backup_path.as_posix())
+
+        # Determine content to write
+        if template:
+            content = template
+        elif lines:
+            content = "\n".join([str(l) for l in lines])
+        else:
+            return {"success": False, "error": {"code": "invalid", "message": "Missing template or lines"}}
+
+        # Check if file exists and overwrite is not allowed
+        if target_path.exists() and not overwrite:
+            return {"success": False, "error": {"code": "file_exists", "message": f"File {file_path} exists and overwrite is False"}}
+
+        # Write content to file
+        with open(target_path, "w", encoding="utf-8") as f:
+            f.write(content)
+            if not content.endswith("\n"):
+                f.write("\n")
+
+        return {"success": True, "message": f"File {file_path} written successfully"}
+    except Exception as exc:
+        return {"success": False, "error": {"code": "file_write_error", "message": str(exc)}}
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Legacy YAML still supported but optional
     conf = config.get(DOMAIN, {})
@@ -162,49 +216,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         for key in ("template", "lines", "path", "backup", "overwrite"):
             if key in msg and key not in args:
                 args[key] = msg[key]
-        payload = {"method": "ferbos/ui/add", "args": args}
-        if api_key:
-            payload["token"] = api_key
-        async with aiohttp.ClientSession() as session:
-            url = f"{addon_base_url.rstrip('/')}/ws_bridge"
-            async with session.post(url, json=payload) as resp:
-                try:
-                    data = await resp.json(content_type=None)
-                except Exception:
-                    data = {"status": resp.status, "text": await resp.text()}
+        data = await _handle_ui_file_operation(hass, args)
         connection.send_result(msg["id"], data)
 
     websocket_api.async_register_command(hass, ws_ferbos_ui_add)
 
-    @websocket_api.websocket_command({
-        "type": "ferbos/ui/add",
-        "id": int,
-        vol.Optional("args"): dict,
-        vol.Optional("template"): cv.string,
-        vol.Optional("lines"): list,
-        vol.Optional("path"): cv.string,
-        vol.Optional("backup"): bool,
-        vol.Optional("overwrite"): bool,
-    })
-    @websocket_api.async_response
-    async def ws_ferbos_ui_add(hass, connection, msg):
-        args = msg.get("args") or {}
-        for key in ("template", "lines", "path", "backup", "overwrite"):
-            if key in msg and key not in args:
-                args[key] = msg[key]
-        payload = {"method": "ferbos/ui/add", "args": args}
-        if api_key:
-            payload["token"] = api_key
-        async with aiohttp.ClientSession() as session:
-            url = f"{addon_base_url.rstrip('/')}/ws_bridge"
-            async with session.post(url, json=payload) as resp:
-                try:
-                    data = await resp.json(content_type=None)
-                except Exception:
-                    data = {"status": resp.status, "text": await resp.text()}
-        connection.send_result(msg["id"], data)
-
-    websocket_api.async_register_command(hass, ws_ferbos_ui_add)
     return True
 
 
@@ -259,6 +275,28 @@ async def async_setup_entry(hass: HomeAssistant, entry) -> bool:
         connection.send_result(msg["id"], data)
 
     websocket_api.async_register_command(hass, ws_ferbos_config_add)
+
+    @websocket_api.websocket_command({
+        "type": "ferbos/ui/add",
+        "id": int,
+        vol.Optional("args"): dict,
+        vol.Optional("template"): cv.string,
+        vol.Optional("lines"): list,
+        vol.Optional("path"): cv.string,
+        vol.Optional("backup"): bool,
+        vol.Optional("overwrite"): bool,
+    })
+    @websocket_api.async_response
+    async def ws_ferbos_ui_add(hass, connection, msg):
+        args = msg.get("args") or {}
+        # Accept flattened fields for convenience
+        for key in ("template", "lines", "path", "backup", "overwrite"):
+            if key in msg and key not in args:
+                args[key] = msg[key]
+        data = await _handle_ui_file_operation(hass, args)
+        connection.send_result(msg["id"], data)
+
+    websocket_api.async_register_command(hass, ws_ferbos_ui_add)
     return True
 
 
