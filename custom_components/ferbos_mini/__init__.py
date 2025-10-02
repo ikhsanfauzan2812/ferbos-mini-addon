@@ -103,6 +103,11 @@ async def _handle_ui_file_operation(hass: HomeAssistant, args: dict) -> dict:
 
     target_path = Path(hass.config.path(file_path))
     
+    # Debug: log the actual path being used
+    import logging
+    _LOGGER = logging.getLogger(__name__)
+    _LOGGER.info(f"Writing to path: {target_path} (exists: {target_path.exists()})")
+    
     try:
         # Create parent directories if they don't exist
         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -110,8 +115,9 @@ async def _handle_ui_file_operation(hass: HomeAssistant, args: dict) -> dict:
         # Backup existing file if requested and file exists
         if backup and target_path.exists():
             ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-            backup_path = target_path.with_suffix(f".backup.{ts}{target_path.suffix}")
+            backup_path = target_path.with_name(f"{target_path.stem}.backup.{ts}{target_path.suffix}")
             shutil.copy2(target_path.as_posix(), backup_path.as_posix())
+            _LOGGER.info(f"Created backup: {backup_path}")
 
         # Determine content to write
         if template:
@@ -125,12 +131,13 @@ async def _handle_ui_file_operation(hass: HomeAssistant, args: dict) -> dict:
         if target_path.exists() and not overwrite:
             return {"success": False, "error": {"code": "file_exists", "message": f"File {file_path} exists and overwrite is False"}}
 
-        # Write content to file
+        # Write content to file (overwrite mode)
         with open(target_path, "w", encoding="utf-8") as f:
             f.write(content)
             if not content.endswith("\n"):
                 f.write("\n")
-
+        
+        _LOGGER.info(f"Successfully wrote {len(content)} characters to {target_path}")
         return {"success": True, "message": f"File {file_path} written successfully"}
     except Exception as exc:
         return {"success": False, "error": {"code": "file_write_error", "message": str(exc)}}
